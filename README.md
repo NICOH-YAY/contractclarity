@@ -1,18 +1,18 @@
 # ContractClarity
 
-ContractClarity is a contract reader that runs in your browser. You load a contract as a PDF, a Word file, or plain text, and the page pulls out the important terms and marks the clauses worth a second look. An AI agent can then read those findings through WebMCP and talk you through them. The text stays on your machine the whole time.
+ContractClarity reads a contract in your browser. You give it a PDF, a Word file, or pasted text, and it finds the terms that matter and points out the clauses you probably want to look at twice. If you have an AI agent, it can pick up those findings through WebMCP and walk you through them. The contract stays on your computer.
 
-## What the page does on its own
+## What the page does without an agent
 
-Open a file and the page does the mechanical reading for you. It parses the document locally, then extracts the parties, the effective date, the term length, the notice period, the payment terms, the dollar amounts, and the governing law. On top of that it runs a small rulebook that looks for clauses people tend to skim past: auto-renewal, termination for convenience, indemnification, a non-compete, an arbitration or jury waiver, penalties and late fees, one-sided change rights, IP assignment, and a liability section with no cap. Each hit comes with a severity, the sentence it matched, and a short note on why it matters. The page rolls the hits into one risk score from 0 to 100 so you get a read at a glance.
+When you load a file, the page reads it for you. It parses the document on your machine and finds the parties, the effective date, how long the term runs, the notice period, the payment terms, any dollar amounts, and the governing law. It also runs a set of rules that look for the clauses people miss: auto-renewal, termination for convenience, indemnification, a non-compete, an arbitration or jury waiver, penalties and late fees, one party's right to change the terms alone, IP assignment, and a liability section that never sets a cap. When a rule matches, you see how serious it is, the sentence that triggered it, and a line on why it is worth noting. The page adds those up into a single risk score out of 100.
 
-None of that needs an agent. The page is useful the moment a contract is loaded.
+You do not need an agent for any of this. Load a contract and the page already has something to show you.
 
-## How the WebMCP part works
+## How WebMCP fits in
 
-WebMCP is a browser API that lets a page hand structured tools to an AI agent. Instead of the agent scraping the screen or guessing at the raw text, the page tells it plainly what it can ask for, and the agent calls those tools directly.
+WebMCP is a browser feature that lets a page offer an AI agent a set of tools it can call. The agent does not have to read the screen or guess at the text. The page tells it what it can ask for, and the agent asks.
 
-ContractClarity registers its tools on `document.modelContext` when the page loads. Each tool is a plain object with four parts. A `name` the agent refers to. A `description` written for the agent to read. An `inputSchema` that spells out the arguments as JSON Schema. And an `execute` function that runs when the agent calls the tool and returns a plain object.
+The page sets up its tools on `document.modelContext` as soon as it loads. A tool is a plain object. It has a name the agent uses, a description the agent reads to understand what the tool does, an `inputSchema` written in JSON Schema that lists the arguments, and an `execute` function that runs when the agent calls the tool and hands back a plain object.
 
 ```js
 document.modelContext.registerTool({
@@ -27,9 +27,9 @@ document.modelContext.registerTool({
 });
 ```
 
-When an agent is connected it sees the whole set and can call any of them. Ask it to explain the contract and it calls `analyze_contract`, reads the exact structure the page built, and puts it in plain words. The page did the parsing and the flagging, the agent does the explaining, and each side handles the part it is good at.
+Once an agent is connected it can see every tool and call any of them. Ask it about the contract and it calls `analyze_contract`, gets back the structure the page already worked out, and explains it in normal language. The page does the reading and the flagging. What the agent adds is the judgment about what those flags mean for your situation.
 
-A couple of details about the API itself. WebMCP moved its entry point from `navigator.modelContext` to `document.modelContext`, and the old name still works as an alias, so the page reads whichever one the browser exposes. Registration takes a single object with `name`, `inputSchema`, and `execute`. Some older examples pass the name as a separate first argument, or use `parameters` and `handler`. Those do not match the current API and register nothing, so the code here uses the single-object form.
+Two things are worth knowing about the API. WebMCP used to live at `navigator.modelContext` and now lives at `document.modelContext`, with the old name kept as an alias, so the page uses whichever one the browser gives it. Registration wants one object that holds the name, the schema, and the execute function together. You will find older snippets that pass the name on its own, or that call the fields `parameters` and `handler`. Those register nothing on a current browser, so the code here uses the one-object form.
 
 ### The tools
 
@@ -47,17 +47,17 @@ A couple of details about the API itself. WebMCP moved its entry point from `nav
 
 ## Running it
 
-It is a single static file. Open `index.html` over HTTPS or on localhost, since the API only exists in a secure context.
+It is one static HTML file. Open it over HTTPS or on localhost, because the API only shows up in a secure context.
 
-- ChatGPT's desktop app has an in-app browser with WebMCP on by default.
-- Chrome 149 and later works after you turn on `chrome://flags/#enable-webmcp-testing` and restart.
-- Any other browser still runs the page. It loads a small polyfill so the tools register, and it ships a tool tester so you can call each tool by hand without an agent.
+- ChatGPT's desktop app comes with an in-app browser that has WebMCP turned on.
+- Chrome 149 and up works once you switch on `chrome://flags/#enable-webmcp-testing` and restart.
+- Every other browser still runs the page. It loads a polyfill so the tools register, and it has a tool tester so you can call any tool by hand without an agent.
 
-To try it, click "Load sample" on the primary box, then run `analyze_contract` with `{ "which": "primary" }` from the tool tester or your agent.
+Click "Load sample" on the primary box, then run `analyze_contract` with `{ "which": "primary" }` from the tester or from your agent.
 
 ## Privacy
 
-The contract never leaves the browser. Parsing, analysis, and the optional share link all happen on your machine. The only thing that reads the plain text is the agent you chose to connect.
+The contract stays in the browser. The page reads the file, runs the analysis, and builds any share link on your own machine, and none of it is sent anywhere. The one thing that ever sees the plain text is the agent you decide to connect.
 
 ## License
 
