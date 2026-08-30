@@ -3,128 +3,329 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ContractClarity — an agent-ready contract reader (WebMCP)</title>
-  <meta name="description" content="Upload a contract. The page extracts terms and flags risky clauses on its own, and exposes those findings to your AI agent through WebMCP so it can explain and compare in plain English. Nothing leaves your browser." />
-  <!-- Tailwind's Play CDN is a runtime compiler and cannot be pinned to an
-       integrity hash. The three libraries below are pinned and hash-checked, so
-       a tampered copy will not run. -->
-  <script src="https://cdn.tailwindcss.com"></script>
+  <title>ContractClarity — read any contract with your own agent</title>
+  <meta name="description" content="Load a contract and the page pulls out the terms and flags the risky clauses on its own, then exposes those findings to your AI agent through WebMCP. Nothing leaves your browser." />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js" integrity="sha384-nFoSjZIoH3CCp8W639jJyQkuPHinJ2NHe7on1xvlUA7SuGfJAfvMldrsoAVm6ECz" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <!-- WebMCP polyfill: only used in a non-WebMCP browser so the page is testable
        everywhere. It never replaces a native implementation. -->
   <script src="https://cdn.jsdelivr.net/npm/@mcp-b/webmcp-polyfill@5.0.1/dist/index.iife.js" integrity="sha384-eEsAHdjSa8tRRsRKE/caYR6fgClhtPOCFejqBuDxsqelLSFCCykykfYGAEc+IW1E" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <style>
-    .drop-zone.dragover { border-color: #6366f1; background: #eef2ff; }
-    .dark .drop-zone.dragover { background: #1e1b4b; }
-    #toast { transition: opacity 0.3s, transform 0.3s; }
+    :root {
+      --bg: #f5f5f7;
+      --text: #1d1d1f; --muted: #6e6e73;
+      --hair: rgba(0,0,0,.10); --hair-strong: rgba(0,0,0,.18);
+      --glass: rgba(255,255,255,.66); --glass-brd: rgba(255,255,255,.75);
+      --nav-bg: rgba(245,245,247,.72);
+      --chip-bg: rgba(0,0,0,.05); --chip-bg-hover: rgba(0,0,0,.09);
+      --field-bg: rgba(255,255,255,.6);
+      --accent: #0071e3; --accent-ring: rgba(0,113,227,.25); --accent-tint: rgba(0,113,227,.08);
+      --ok-bg: rgba(52,199,89,.16); --ok-fg: #1a7f37; --ok-brd: rgba(52,199,89,.32);
+      --warn-bg: rgba(255,149,0,.16); --warn-fg: #9a5b00; --warn-brd: rgba(255,149,0,.32);
+      --red-bg: rgba(255,59,48,.12); --red-fg: #c9302c; --red-brd: rgba(255,59,48,.28);
+      --amber-bg: rgba(255,149,0,.14); --amber-fg: #9a5b00; --amber-brd: rgba(255,149,0,.3);
+      --yellow-bg: rgba(255,204,0,.20); --yellow-fg: #8a6d00;
+      --green-bg: rgba(52,199,89,.16); --green-fg: #1a7f37;
+      --flag-bg: rgba(255,255,255,.5);
+      --toast-bg: rgba(28,28,30,.92); --toast-fg: #fff;
+      --code-bg: #0b0d12; --code-fg: #e6e6ea;
+      --shadow: 0 10px 30px rgba(0,0,0,.07);
+    }
+    html.dark {
+      --bg: #000;
+      --text: #f5f5f7; --muted: #a1a1a6;
+      --hair: rgba(255,255,255,.12); --hair-strong: rgba(255,255,255,.22);
+      --glass: rgba(28,28,32,.55); --glass-brd: rgba(255,255,255,.12);
+      --nav-bg: rgba(10,10,12,.6);
+      --chip-bg: rgba(255,255,255,.08); --chip-bg-hover: rgba(255,255,255,.14);
+      --field-bg: rgba(255,255,255,.05);
+      --accent: #2997ff; --accent-ring: rgba(41,151,255,.3); --accent-tint: rgba(41,151,255,.12);
+      --ok-bg: rgba(48,209,88,.16); --ok-fg: #30d158; --ok-brd: rgba(48,209,88,.32);
+      --warn-bg: rgba(255,159,10,.16); --warn-fg: #ffb84d; --warn-brd: rgba(255,159,10,.32);
+      --red-bg: rgba(255,69,58,.16); --red-fg: #ff6b6b; --red-brd: rgba(255,69,58,.3);
+      --amber-bg: rgba(255,159,10,.16); --amber-fg: #ffb84d; --amber-brd: rgba(255,159,10,.3);
+      --yellow-bg: rgba(255,214,10,.16); --yellow-fg: #ffd60a;
+      --green-bg: rgba(48,209,88,.16); --green-fg: #30d158;
+      --flag-bg: rgba(255,255,255,.04);
+      --toast-bg: rgba(44,44,48,.88); --toast-fg: #fff;
+      --code-bg: #06070a; --code-fg: #e6e6ea;
+      --shadow: 0 12px 34px rgba(0,0,0,.4);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body {
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter", system-ui, "Segoe UI", Roboto, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      line-height: 1.45; min-height: 100vh;
+      background:
+        radial-gradient(55rem 55rem at 12% -12%, rgba(0,113,227,.10), transparent 60%),
+        radial-gradient(48rem 48rem at 102% 2%, rgba(10,132,255,.08), transparent 55%),
+        var(--bg);
+    }
+    html.dark body {
+      background:
+        radial-gradient(55rem 55rem at 12% -12%, rgba(41,151,255,.16), transparent 60%),
+        radial-gradient(48rem 48rem at 102% 2%, rgba(41,151,255,.10), transparent 55%),
+        #000;
+    }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+
+    .wrap { max-width: 1060px; margin: 0 auto; padding: 0 20px; width: 100%; }
+    .main { padding: 30px 20px 64px; }
+    .section { margin-top: 20px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1.9fr; gap: 22px; }
+    @media (max-width: 820px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+    .row-between { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+
+    /* Glass surfaces */
+    .glass {
+      background: var(--glass);
+      border: 1px solid var(--glass-brd);
+      border-radius: 22px;
+      box-shadow: 0 1px 0 rgba(255,255,255,.4) inset, var(--shadow);
+      backdrop-filter: blur(22px) saturate(1.6);
+      -webkit-backdrop-filter: blur(22px) saturate(1.6);
+    }
+    .card { padding: 20px; }
+
+    /* Nav */
+    .nav {
+      position: sticky; top: 0; z-index: 40;
+      background: var(--nav-bg);
+      border-bottom: 1px solid var(--hair);
+      backdrop-filter: blur(18px) saturate(1.6);
+      -webkit-backdrop-filter: blur(18px) saturate(1.6);
+    }
+    .nav-inner { display: flex; align-items: center; justify-content: space-between; height: 56px; }
+    .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text); }
+    .brand-mark { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; color: #fff;
+      background: linear-gradient(160deg, var(--accent), #0a84ff); box-shadow: 0 5px 14px rgba(0,113,227,.35); }
+    .brand-name { font-weight: 600; letter-spacing: -.01em; font-size: 17px; }
+    .brand-accent { color: var(--accent); }
+    .nav-right { display: flex; align-items: center; gap: 10px; }
+
+    /* Hero */
+    .hero { padding: 22px 0 6px; }
+    .hero-title { font-size: clamp(30px, 5vw, 50px); line-height: 1.05; letter-spacing: -.03em; font-weight: 700; margin: 0; }
+    .hero-sub { color: var(--muted); font-size: clamp(15px, 2vw, 18px); max-width: 62ch; margin: 14px 0 0; }
+
+    /* Type */
+    .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+    .card-title { font-size: 16px; font-weight: 600; letter-spacing: -.01em; margin: 0; }
+    .muted { color: var(--muted); }
+    .small { font-size: 12.5px; }
+
+    /* Buttons */
+    .btn { font: inherit; font-weight: 600; border: 0; border-radius: 980px; padding: 10px 18px; cursor: pointer;
+      transition: transform .18s cubic-bezier(.2,.8,.2,1), background .2s, box-shadow .2s, filter .2s; }
+    .btn:active { transform: scale(.96); }
+    .btn-primary { background: var(--accent); color: #fff; box-shadow: 0 6px 18px rgba(0,113,227,.32); }
+    .btn-primary:hover { filter: brightness(1.06); box-shadow: 0 9px 24px rgba(0,113,227,.42); }
+    .btn-ghost { background: var(--chip-bg); color: var(--text); border: 1px solid var(--hair); }
+    .btn-ghost:hover { background: var(--chip-bg-hover); }
+    .btn-sm { padding: 8px 14px; font-size: 13px; }
+    .icon-btn { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; color: var(--text);
+      border: 1px solid var(--hair); background: var(--chip-bg); cursor: pointer; transition: transform .18s, background .2s; }
+    .icon-btn:hover { background: var(--chip-bg-hover); }
+    .icon-btn:active { transform: scale(.9); }
+    .link { color: var(--accent); text-decoration: none; font-weight: 500; cursor: pointer; background: none; border: 0; padding: 0; font: inherit; }
+    .link:hover { text-decoration: underline; }
+
+    /* Status pill */
+    .pill { font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 980px; border: 1px solid var(--hair); white-space: nowrap; }
+    .pill-ok { background: var(--ok-bg); color: var(--ok-fg); border-color: var(--ok-brd); }
+    .pill-warn { background: var(--warn-bg); color: var(--warn-fg); border-color: var(--warn-brd); }
+    .pill-pending { background: var(--chip-bg); color: var(--muted); }
+    .chip { font-size: 12px; padding: 5px 11px; border-radius: 980px; background: var(--chip-bg); color: var(--muted); border: 1px solid var(--hair); }
+
+    /* Inputs */
+    .drop { border: 1.5px dashed var(--hair-strong); border-radius: 16px; padding: 20px; text-align: center; cursor: pointer;
+      color: var(--muted); transition: border-color .2s, background .2s, color .2s; }
+    .drop:hover { border-color: var(--accent); color: var(--text); }
+    .drop.dragover { border-color: var(--accent); background: var(--accent-tint); color: var(--text); }
+    .field { width: 100%; border: 1px solid var(--hair); border-radius: 14px; padding: 12px 14px; font: inherit; font-size: 14px;
+      background: var(--field-bg); color: var(--text); resize: vertical; transition: border-color .2s, box-shadow .2s; }
+    .field:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-ring); }
+    .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+
+    /* Analysis */
+    .risk-badge { font-size: 12px; font-weight: 700; padding: 6px 12px; border-radius: 980px; }
+    .risk-High { background: var(--red-bg); color: var(--red-fg); }
+    .risk-Elevated { background: var(--amber-bg); color: var(--amber-fg); }
+    .risk-Moderate { background: var(--yellow-bg); color: var(--yellow-fg); }
+    .risk-Low { background: var(--green-bg); color: var(--green-fg); }
+
+    .term-row { display: flex; gap: 10px; font-size: 14px; padding: 3px 0; }
+    .term-k { color: var(--muted); width: 116px; flex: none; }
+    .term-v { color: var(--text); }
+    .ok-note { color: var(--green-fg); font-size: 14px; }
+
+    .flag { border: 1px solid var(--hair); border-radius: 14px; padding: 12px 14px; background: var(--flag-bg); }
+    .flag-high { border-color: var(--red-brd); background: var(--red-bg); }
+    .flag-med { border-color: var(--amber-brd); background: var(--amber-bg); }
+    .flag-low { border-color: var(--hair); background: var(--chip-bg); }
+    .flag-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .flag-name { font-weight: 600; }
+    .sev { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; opacity: .7; }
+    .tag { font-size: 11px; padding: 2px 8px; border-radius: 980px; background: var(--chip-bg); border: 1px solid var(--hair); color: var(--muted); }
+    .flag-why { font-size: 13px; margin-top: 4px; opacity: .92; }
+    .flag-sec { font-size: 12px; margin-top: 6px; opacity: .7; }
+    .flag-quote { font-size: 12px; margin-top: 6px; font-style: italic; opacity: .7; }
+    .stack > * + * { margin-top: 8px; }
+
+    /* Prompts */
+    .prompt-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--hair); border-radius: 14px; background: var(--field-bg); }
+    .prompt-text { flex: 1; font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; color: var(--text); }
+    .copy-btn { font: inherit; font-size: 12px; font-weight: 600; border: 1px solid var(--hair); background: var(--chip-bg); color: var(--text);
+      padding: 6px 13px; border-radius: 980px; cursor: pointer; transition: transform .15s, background .2s; }
+    .copy-btn:hover { background: var(--chip-bg-hover); }
+    .copy-btn:active { transform: scale(.94); }
+
+    /* Tester */
+    details.tester { padding: 16px 20px; }
+    details.tester > summary { cursor: pointer; font-weight: 600; font-size: 14px; list-style: none; color: var(--muted); }
+    details.tester > summary::-webkit-details-marker { display: none; }
+    details.tester[open] > summary { color: var(--text); }
+    .tester-row { display: flex; gap: 8px; margin: 12px 0 8px; }
+    #tool-select { flex: 1; }
+    #tool-result { background: var(--code-bg); color: var(--code-fg); border-radius: 12px; padding: 12px; margin: 8px 0 0;
+      font-family: ui-monospace, Menlo, monospace; font-size: 12px; overflow-x: auto; max-height: 260px; }
+
+    /* Toast */
+    .toast { position: fixed; top: 18px; right: 18px; background: var(--toast-bg); color: var(--toast-fg); padding: 11px 16px;
+      border-radius: 14px; box-shadow: 0 14px 40px rgba(0,0,0,.3); font-size: 14px; font-weight: 500; opacity: 0;
+      transform: translateY(-8px); pointer-events: none; z-index: 60; border: 1px solid var(--hair);
+      backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); transition: opacity .3s, transform .3s; }
+
+    /* Footer */
+    .footer { margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--hair); color: var(--muted); font-size: 12px;
+      display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; }
+
+    .hidden { display: none; }
+
+    @keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+    .rise { animation: rise .55s cubic-bezier(.2,.8,.2,1) both; }
+    .d1 { animation-delay: .05s; } .d2 { animation-delay: .1s; } .d3 { animation-delay: .16s; } .d4 { animation-delay: .22s; }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
   </style>
 </head>
-<body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+<body>
 
-<div id="toast" class="fixed top-4 right-4 bg-indigo-600 text-white px-4 py-2 rounded-lg shadow-lg text-sm opacity-0 -translate-y-2 pointer-events-none z-50">Copied</div>
+<div id="toast" class="toast">Copied</div>
 
-<div class="max-w-6xl mx-auto p-4 md:p-8">
-
-  <header class="flex flex-wrap items-center justify-between gap-3 mb-6">
-    <div>
-      <h1 class="text-3xl md:text-4xl font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-2">
-        📄 ContractClarity
-      </h1>
-      <p class="text-gray-600 dark:text-gray-400 text-sm mt-1 max-w-2xl">The page reads your contract, pulls out the terms, and flags the risky clauses. Your own AI agent reaches those findings through WebMCP and explains them. Nothing leaves your browser.</p>
+<header class="nav">
+  <div class="nav-inner wrap">
+    <a class="brand" href="#" aria-label="ContractClarity">
+      <span class="brand-mark" aria-hidden="true">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2h-3"/><path d="m9 12 2 2 4-4"/></svg>
+      </span>
+      <span class="brand-name">Contract<span class="brand-accent">Clarity</span></span>
+    </a>
+    <div class="nav-right">
+      <button id="theme-toggle" class="icon-btn" aria-label="Toggle appearance"></button>
+      <span id="mcp-status" class="pill pill-pending">connecting</span>
     </div>
-    <div class="flex items-center gap-3">
-      <button id="theme-toggle" class="p-2 rounded-full bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-lg">🌙</button>
-      <span id="mcp-status" class="text-xs font-semibold px-3 py-1.5 rounded-full bg-gray-200 dark:bg-gray-700">connecting</span>
-    </div>
-  </header>
-
-  <!-- Upload boxes -->
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-    <section class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
-      <div class="flex justify-between items-center mb-3">
-        <h2 class="font-semibold">Primary contract</h2>
-        <span class="text-xs text-gray-400" id="primary-char-count">0 chars</span>
-      </div>
-      <div id="primary-drop" class="drop-zone border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-4 text-center cursor-pointer hover:border-indigo-400">
-        <input type="file" id="primary-file-input" accept=".txt,.pdf,.docx" class="hidden" />
-        <p class="text-sm text-gray-500 dark:text-gray-400">Drag and drop, or <span class="text-indigo-600 underline">browse</span> (.txt, .pdf, .docx)</p>
-      </div>
-      <textarea id="primary-contract" rows="7" class="mt-3 w-full border border-gray-200 dark:border-gray-700 rounded-lg p-3 text-sm bg-gray-50 dark:bg-gray-900 focus:ring-2 focus:ring-indigo-300" placeholder="Paste contract text..."></textarea>
-      <div class="flex flex-wrap gap-2 mt-3 text-sm items-center">
-        <button data-load-sample="primary" class="text-indigo-600 dark:text-indigo-400 underline text-xs">Load sample</button>
-        <button id="primary-clear-btn" class="ml-auto text-gray-400 hover:text-gray-600 text-xs px-3 py-1 rounded-lg border border-gray-200 dark:border-gray-700">Clear</button>
-        <button id="share-primary-btn" class="text-indigo-500 dark:text-indigo-400 underline text-xs">Share link</button>
-      </div>
-      <div id="primary-status" class="mt-1 text-xs text-gray-500 dark:text-gray-400"></div>
-    </section>
-
-    <section class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
-      <div class="flex justify-between items-center mb-3">
-        <h2 class="font-semibold">Secondary contract (to compare)</h2>
-        <span class="text-xs text-gray-400" id="secondary-char-count">0 chars</span>
-      </div>
-      <div id="secondary-drop" class="drop-zone border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-4 text-center cursor-pointer hover:border-purple-400">
-        <input type="file" id="secondary-file-input" accept=".txt,.pdf,.docx" class="hidden" />
-        <p class="text-sm text-gray-500 dark:text-gray-400">Drag and drop, or <span class="text-purple-600 underline">browse</span></p>
-      </div>
-      <textarea id="secondary-contract" rows="7" class="mt-3 w-full border border-gray-200 dark:border-gray-700 rounded-lg p-3 text-sm bg-gray-50 dark:bg-gray-900 focus:ring-2 focus:ring-purple-300" placeholder="Paste a second contract to compare..."></textarea>
-      <div class="flex flex-wrap gap-2 mt-3 text-sm items-center">
-        <button data-load-sample="secondary" class="text-purple-600 dark:text-purple-400 underline text-xs">Load sample</button>
-        <button id="secondary-clear-btn" class="ml-auto text-gray-400 hover:text-gray-600 text-xs px-3 py-1 rounded-lg border border-gray-200 dark:border-gray-700">Clear</button>
-        <button id="share-secondary-btn" class="text-purple-500 dark:text-purple-400 underline text-xs">Share link</button>
-      </div>
-      <div id="secondary-status" class="mt-1 text-xs text-gray-500 dark:text-gray-400"></div>
-    </section>
   </div>
+</header>
 
-  <!-- Page-owned analysis of the primary contract -->
-  <section class="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
-    <div class="flex items-center justify-between mb-3">
-      <h2 class="font-semibold">On-page analysis <span class="text-xs font-normal text-gray-400">of the primary contract</span></h2>
-      <div class="flex items-center gap-2">
-        <span id="risk-level" class="text-xs font-semibold px-2 py-1 rounded-full"></span>
-        <span id="readability" class="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-300"></span>
+<main class="wrap main">
+
+  <section class="hero rise">
+    <h1 class="hero-title">Read any contract with your own agent.</h1>
+    <p class="hero-sub">The page pulls out the terms and flags the risky clauses on its own. Your AI agent reaches those findings through WebMCP and explains them in plain words. Nothing leaves your browser.</p>
+  </section>
+
+  <section class="section grid-2">
+    <div class="glass card rise d1">
+      <div class="row-between" style="margin-bottom:12px">
+        <h2 class="card-title">Primary contract</h2>
+        <span class="small muted" id="primary-char-count">0 chars</span>
+      </div>
+      <div id="primary-drop" class="drop">
+        <input type="file" id="primary-file-input" accept=".txt,.pdf,.docx" class="hidden" />
+        <p class="small">Drag and drop, or <span class="link">browse</span> · .txt, .pdf, .docx</p>
+      </div>
+      <textarea id="primary-contract" rows="7" class="field" style="margin-top:12px" placeholder="Paste contract text..."></textarea>
+      <div class="row-between" style="margin-top:12px; gap:10px">
+        <button data-load-sample="primary" class="link small">Load sample</button>
+        <div style="display:flex; gap:8px; margin-left:auto">
+          <button id="primary-clear-btn" class="btn btn-ghost btn-sm">Clear</button>
+          <button id="share-primary-btn" class="btn btn-ghost btn-sm">Share link</button>
+        </div>
+      </div>
+      <div id="primary-status" class="small muted" style="margin-top:8px"></div>
+    </div>
+
+    <div class="glass card rise d2">
+      <div class="row-between" style="margin-bottom:12px">
+        <h2 class="card-title">Secondary contract <span class="muted small">to compare</span></h2>
+        <span class="small muted" id="secondary-char-count">0 chars</span>
+      </div>
+      <div id="secondary-drop" class="drop">
+        <input type="file" id="secondary-file-input" accept=".txt,.pdf,.docx" class="hidden" />
+        <p class="small">Drag and drop, or <span class="link">browse</span></p>
+      </div>
+      <textarea id="secondary-contract" rows="7" class="field" style="margin-top:12px" placeholder="Paste a second contract to compare..."></textarea>
+      <div class="row-between" style="margin-top:12px; gap:10px">
+        <button data-load-sample="secondary" class="link small">Load sample</button>
+        <div style="display:flex; gap:8px; margin-left:auto">
+          <button id="secondary-clear-btn" class="btn btn-ghost btn-sm">Clear</button>
+          <button id="share-secondary-btn" class="btn btn-ghost btn-sm">Share link</button>
+        </div>
+      </div>
+      <div id="secondary-status" class="small muted" style="margin-top:8px"></div>
+    </div>
+  </section>
+
+  <section class="section glass card rise d3">
+    <div class="row-between" style="margin-bottom:16px">
+      <div>
+        <div class="eyebrow">On-page analysis</div>
+        <div class="muted small" style="margin-top:2px">of the primary contract</div>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px">
+        <span id="risk-level"></span>
+        <span id="readability" class="chip"></span>
       </div>
     </div>
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div class="grid-3">
       <div>
-        <h3 class="text-xs font-semibold text-gray-400 uppercase mb-2">Key terms</h3>
-        <dl id="terms" class="text-sm space-y-1 text-gray-700 dark:text-gray-300"></dl>
+        <div class="eyebrow" style="margin-bottom:10px">Key terms</div>
+        <dl id="terms" style="margin:0"></dl>
       </div>
-      <div class="md:col-span-2">
-        <h3 class="text-xs font-semibold text-gray-400 uppercase mb-2">Risk flags <span id="risk-count" class="text-gray-400"></span></h3>
-        <div id="risk-flags" class="flex flex-col gap-2"></div>
+      <div>
+        <div class="eyebrow" style="margin-bottom:10px">Risk flags <span id="risk-count" class="muted"></span></div>
+        <div id="risk-flags" class="stack"></div>
       </div>
     </div>
   </section>
 
-  <!-- Prompts -->
-  <div class="mt-6">
-    <section class="bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 rounded-xl p-5">
-      <h3 class="font-semibold text-indigo-800 dark:text-indigo-300 mb-1">One-click prompts for your agent</h3>
-      <p class="text-xs text-indigo-700 dark:text-indigo-400 mb-3">Copy one, then paste it into ChatGPT or your MCP assistant after loading a contract. These call the page's tools.</p>
-      <div id="prompts" class="flex flex-col gap-2"></div>
-    </section>
-  </div>
+  <section class="section glass card rise d4">
+    <h3 class="card-title" style="margin-bottom:4px">One-click prompts for your agent</h3>
+    <p class="muted small" style="margin:0 0 14px">Copy one, then paste it into ChatGPT or your MCP assistant after loading a contract. Each one calls the page's tools.</p>
+    <div id="prompts" class="stack"></div>
+  </section>
 
-  <details class="mt-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-    <summary class="cursor-pointer text-sm text-gray-500 dark:text-gray-400">Test tools manually</summary>
-    <p class="text-xs text-gray-500 dark:text-gray-400 mt-2 mb-3">Run any WebMCP tool by hand, the same way an agent would. Useful for a browser without WebMCP.</p>
-    <div class="flex gap-2 mb-2">
-      <select id="tool-select" class="flex-1 text-sm border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-gray-50 dark:bg-gray-900 font-mono"></select>
-      <button id="tool-run" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm px-4 rounded-lg">Run</button>
+  <details class="section glass tester">
+    <summary>Test tools manually</summary>
+    <p class="muted small" style="margin:10px 0 0">Run any WebMCP tool by hand, the same way an agent would. Useful for a browser without WebMCP.</p>
+    <div class="tester-row">
+      <select id="tool-select" class="field mono"></select>
+      <button id="tool-run" class="btn btn-primary btn-sm">Run</button>
     </div>
-    <div id="tool-desc" class="text-xs text-gray-500 dark:text-gray-400 mb-2"></div>
-    <textarea id="tool-args" rows="3" class="w-full text-xs font-mono border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-gray-50 dark:bg-gray-900"></textarea>
-    <pre id="tool-result" class="mt-2 text-xs bg-gray-900 text-gray-100 rounded-lg p-3 overflow-x-auto max-h-56 hidden"></pre>
+    <div id="tool-desc" class="muted small" style="margin-bottom:8px"></div>
+    <textarea id="tool-args" rows="3" class="field mono" style="font-size:12px"></textarea>
+    <pre id="tool-result" class="hidden"></pre>
   </details>
 
-  <div class="mt-6 text-xs text-gray-400 dark:text-gray-600 border-t border-gray-200 dark:border-gray-800 pt-4 flex flex-wrap gap-2 justify-between">
+  <footer class="footer">
     <span id="mcp-debug">WebMCP tools register on page load.</span>
     <span>Everything runs in your browser</span>
-  </div>
-</div>
+  </footer>
+</main>
 
 <script>
 (function () {
@@ -341,11 +542,7 @@
     };
   }
 
-  var SEV_CLASS = {
-    high: 'bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300 border-red-200 dark:border-red-900',
-    medium: 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300 border-amber-200 dark:border-amber-900',
-    low: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-600'
-  };
+  var SEV_CLASS = { high: 'flag-high', medium: 'flag-med', low: 'flag-low' };
 
   // Everything below builds nodes with textContent, never innerHTML, so contract
   // text and shared-link content can never inject markup or script into the page.
@@ -365,30 +562,24 @@
     var a = analyze(primary);
     var terms = el('terms'), flagsEl = el('risk-flags');
     terms.textContent = ''; flagsEl.textContent = '';
+    var rl = el('risk-level');
     if (a.empty) {
       el('readability').textContent = '';
-      el('risk-level').textContent = '';
+      rl.textContent = ''; rl.className = '';
       el('risk-count').textContent = '';
-      terms.appendChild(elWith('div', 'text-gray-400 text-sm', 'Load a contract to see terms.'));
-      flagsEl.appendChild(elWith('div', 'text-gray-400 text-sm', 'No contract loaded.'));
+      terms.appendChild(elWith('div', 'muted small', 'Load a contract to see terms.'));
+      flagsEl.appendChild(elWith('div', 'muted small', 'No contract loaded.'));
       return;
     }
     el('readability').textContent = a.readability.level + ' · ~' + a.readability.avgSentenceLength + ' words/sentence';
-    var rl = el('risk-level');
-    var rlClass = {
-      High: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
-      Elevated: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
-      Moderate: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300',
-      Low: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300'
-    };
     rl.textContent = 'Risk ' + a.riskLevel + ' · ' + a.riskScore + '/100';
-    rl.className = 'text-xs font-semibold px-2 py-1 rounded-full ' + (rlClass[a.riskLevel] || rlClass.Low);
+    rl.className = 'risk-badge risk-' + a.riskLevel;
 
     var t = a.terms;
     function termRow(k, v) {
-      var row = elWith('div', 'flex gap-2');
-      row.appendChild(elWith('dt', 'text-gray-400 w-28 flex-none', k));
-      row.appendChild(v ? elWith('dd', '', v) : elWith('dd', 'text-gray-400', 'not found'));
+      var row = elWith('div', 'term-row');
+      row.appendChild(elWith('dt', 'term-k', k));
+      row.appendChild(v ? elWith('dd', 'term-v', v) : elWith('dd', 'term-v muted', 'not found'));
       return row;
     }
     terms.appendChild(termRow('Parties', t.parties.length ? t.parties.join(' & ') : null));
@@ -401,18 +592,18 @@
 
     el('risk-count').textContent = '(' + a.riskFlags.length + ')';
     if (!a.riskFlags.length) {
-      flagsEl.appendChild(elWith('div', 'text-sm text-green-600 dark:text-green-400', 'No common risk clauses detected.'));
+      flagsEl.appendChild(elWith('div', 'ok-note', 'No common risk clauses detected.'));
     } else {
       a.riskFlags.forEach(function (f) {
-        var d = elWith('div', 'border rounded-lg p-2 text-sm ' + (SEV_CLASS[f.severity] || SEV_CLASS.low));
-        var head = elWith('div', 'flex items-center gap-2 flex-wrap');
-        head.appendChild(elWith('span', 'font-semibold', f.label));
-        head.appendChild(elWith('span', 'text-xs uppercase opacity-70', f.severity));
-        if (f.needsReview) head.appendChild(elWith('span', 'text-xs px-1.5 rounded bg-black/10 dark:bg-white/10', 'needs review'));
+        var d = elWith('div', 'flag ' + (SEV_CLASS[f.severity] || SEV_CLASS.low));
+        var head = elWith('div', 'flag-head');
+        head.appendChild(elWith('span', 'flag-name', f.label));
+        head.appendChild(elWith('span', 'sev', f.severity));
+        if (f.needsReview) head.appendChild(elWith('span', 'tag', 'needs review'));
         d.appendChild(head);
-        d.appendChild(elWith('div', 'text-xs mt-0.5 opacity-90', f.why));
-        if (f.section) d.appendChild(elWith('div', 'text-xs mt-1 opacity-70', 'Section: ' + f.section));
-        if (f.quote) d.appendChild(elWith('div', 'text-xs mt-1 italic opacity-70', '“' + f.quote.slice(0, 160) + '”'));
+        d.appendChild(elWith('div', 'flag-why', f.why));
+        if (f.section) d.appendChild(elWith('div', 'flag-sec', 'Section: ' + f.section));
+        if (f.quote) d.appendChild(elWith('div', 'flag-quote', '“' + f.quote.slice(0, 160) + '”'));
         flagsEl.appendChild(d);
       });
     }
@@ -493,9 +684,12 @@
     b.addEventListener('click', function () { setContract(b.getAttribute('data-load-sample'), SAMPLE, 'Sample loaded'); });
   });
 
+  var MOON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>';
+  var SUN = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
+  function applyThemeIcon() { el('theme-toggle').innerHTML = document.documentElement.classList.contains('dark') ? SUN : MOON; }
   el('theme-toggle').addEventListener('click', function () {
     document.documentElement.classList.toggle('dark');
-    el('theme-toggle').textContent = document.documentElement.classList.contains('dark') ? '☀️' : '🌙';
+    applyThemeIcon();
   });
 
   // ---------------------------------------------------------------------------
@@ -578,11 +772,11 @@
     var badge = el('mcp-status');
     if (native) {
       badge.textContent = 'WebMCP connected · ' + TOOLS.length + ' tools';
-      badge.className = 'text-xs font-semibold px-3 py-1.5 rounded-full bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300';
+      badge.className = 'pill pill-ok';
       el('mcp-debug').textContent = 'WebMCP tools registered: ' + TOOLS.map(function (t) { return t.name; }).join(', ') + '.';
     } else {
       badge.textContent = 'tester only · ' + TOOLS.length + ' tools';
-      badge.className = 'text-xs font-semibold px-3 py-1.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300';
+      badge.className = 'pill pill-warn';
       el('mcp-debug').textContent = 'No WebMCP browser detected. Use ChatGPT desktop or Chrome 149+ with the flag, or drive the tools with the tester below.';
     }
   }
@@ -595,13 +789,9 @@
   ];
   var promptsEl = el('prompts');
   PROMPTS.forEach(function (p) {
-    var row = document.createElement('div');
-    row.className = 'flex items-center gap-2 bg-white dark:bg-gray-800 p-2 rounded-lg border border-indigo-100 dark:border-indigo-900';
-    row.innerHTML = '<span class="text-xs font-mono text-gray-600 dark:text-gray-300 flex-1"></span>';
-    row.firstChild.textContent = p;
-    var b = document.createElement('button');
-    b.className = 'text-xs bg-indigo-100 dark:bg-indigo-900 px-3 py-1 rounded-full text-indigo-700 dark:text-indigo-300';
-    b.textContent = 'Copy';
+    var row = elWith('div', 'prompt-row');
+    row.appendChild(elWith('span', 'prompt-text', p));
+    var b = elWith('button', 'copy-btn', 'Copy');
     b.addEventListener('click', function () { navigator.clipboard.writeText(p).then(function () { toast('Prompt copied'); }); });
     row.appendChild(b);
     promptsEl.appendChild(row);
@@ -636,6 +826,8 @@
   syncTester();
 
   function boot() {
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) document.documentElement.classList.add('dark');
+    applyThemeIcon();
     if (!getMC() && typeof window.initializeWebMCPPolyfill === 'function') {
       try { window.initializeWebMCPPolyfill(); } catch (e) {}
     }
