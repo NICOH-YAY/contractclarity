@@ -5,12 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ContractClarity — an agent-ready contract reader (WebMCP)</title>
   <meta name="description" content="Upload a contract. The page extracts terms and flags risky clauses on its own, and exposes those findings to your AI agent through WebMCP so it can explain and compare in plain English. Nothing leaves your browser." />
+  <!-- Tailwind's Play CDN is a runtime compiler and cannot be pinned to an
+       integrity hash. The three libraries below are pinned and hash-checked, so
+       a tampered copy will not run. -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js" integrity="sha384-nFoSjZIoH3CCp8W639jJyQkuPHinJ2NHe7on1xvlUA7SuGfJAfvMldrsoAVm6ECz" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <!-- WebMCP polyfill: only used in a non-WebMCP browser so the page is testable
        everywhere. It never replaces a native implementation. -->
-  <script src="https://cdn.jsdelivr.net/npm/@mcp-b/webmcp-polyfill@5.0.1/dist/index.iife.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mcp-b/webmcp-polyfill@5.0.1/dist/index.iife.js" integrity="sha384-eEsAHdjSa8tRRsRKE/caYR6fgClhtPOCFejqBuDxsqelLSFCCykykfYGAEc+IW1E" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <style>
     .drop-zone.dragover { border-color: #6366f1; background: #eef2ff; }
     .dark .drop-zone.dragover { background: #1e1b4b; }
@@ -295,7 +298,8 @@
     'non-compete': /non-?compete|compete/i
   };
   function getClause(text, topic) {
-    var re = CLAUSE_TOPICS[(topic || '').toLowerCase()];
+    var key = (topic || '').toLowerCase();
+    var re = Object.prototype.hasOwnProperty.call(CLAUSE_TOPICS, key) ? CLAUSE_TOPICS[key] : null;
     if (!re) return { found: false, note: 'Unknown topic. Try termination, payment, liability, confidentiality, renewal, indemnification, governing law, or non-compete.' };
     var m = text.match(re);
     if (!m) return { found: false, topic: topic };
@@ -474,10 +478,14 @@
 
   function loadFromHash() {
     var h = location.hash;
+    if (h.length > 12000) return; // ignore an oversized, hand-crafted hash
     try {
       if (h.indexOf('#p=') === 0) setContract('primary', decodeURIComponent(escape(atob(h.slice(3)))), 'Loaded from shared link');
-      if (h.indexOf('#s=') === 0) setContract('secondary', decodeURIComponent(escape(atob(h.slice(3)))), 'Loaded from shared link');
-    } catch (e) { /* ignore bad hash */ }
+      else if (h.indexOf('#s=') === 0) setContract('secondary', decodeURIComponent(escape(atob(h.slice(3)))), 'Loaded from shared link');
+      else return;
+      // Strip the contract out of the visible URL and the history entry.
+      if (history.replaceState) history.replaceState(null, '', location.pathname + location.search);
+    } catch (e) { /* ignore a malformed hash */ }
   }
 
   var SAMPLE = 'SERVICES AGREEMENT\n\nThis Services Agreement (the "Agreement") is entered into as of Effective date: March 1, 2026, by and between Northwind Studios LLC ("Provider") and Acme Retail Inc. ("Client").\n\n1. TERM. The term of this Agreement is 12 months and shall automatically renew for successive 12-month periods unless either party gives 30 days written notice.\n\n2. FEES. Client shall pay Provider $4,500 per month, Net 15. A late fee of 1.5% applies to overdue amounts.\n\n3. TERMINATION. Provider may terminate this Agreement at any time for convenience upon 30 days notice.\n\n4. CONFIDENTIALITY. Each party shall keep the other’s Confidential Information secret for a period of 3 years.\n\n5. INTELLECTUAL PROPERTY. All deliverables are a work made for hire and Provider assigns all right, title and interest to Client.\n\n6. INDEMNIFICATION. Provider shall indemnify Client against any claims arising from the services.\n\n7. LIABILITY. In no event shall either party’s liability exceed the fees paid in the prior 3 months.\n\n8. GOVERNING LAW. This Agreement is governed by the laws of the State of Delaware.\n\n9. NON-COMPETE. Provider shall not compete with Client within the same market for 12 months after termination.';
