@@ -96,26 +96,26 @@
     </div>
   </section>
 
-  <!-- Prompts + tester -->
-  <div class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+  <!-- Prompts -->
+  <div class="mt-6">
     <section class="bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 rounded-xl p-5">
       <h3 class="font-semibold text-indigo-800 dark:text-indigo-300 mb-1">One-click prompts for your agent</h3>
       <p class="text-xs text-indigo-700 dark:text-indigo-400 mb-3">Copy one, then paste it into ChatGPT or your MCP assistant after loading a contract. These call the page's tools.</p>
       <div id="prompts" class="flex flex-col gap-2"></div>
     </section>
-
-    <section class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
-      <h3 class="font-semibold mb-1">Tool tester</h3>
-      <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">Run any WebMCP tool by hand, exactly as an agent would. Handy without an agent.</p>
-      <div class="flex gap-2 mb-2">
-        <select id="tool-select" class="flex-1 text-sm border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-gray-50 dark:bg-gray-900 font-mono"></select>
-        <button id="tool-run" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm px-4 rounded-lg">Run</button>
-      </div>
-      <div id="tool-desc" class="text-xs text-gray-500 dark:text-gray-400 mb-2"></div>
-      <textarea id="tool-args" rows="3" class="w-full text-xs font-mono border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-gray-50 dark:bg-gray-900"></textarea>
-      <pre id="tool-result" class="mt-2 text-xs bg-gray-900 text-gray-100 rounded-lg p-3 overflow-x-auto max-h-56 hidden"></pre>
-    </section>
   </div>
+
+  <details class="mt-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+    <summary class="cursor-pointer text-sm text-gray-500 dark:text-gray-400">Test tools manually</summary>
+    <p class="text-xs text-gray-500 dark:text-gray-400 mt-2 mb-3">Run any WebMCP tool by hand, the same way an agent would. Useful for a browser without WebMCP.</p>
+    <div class="flex gap-2 mb-2">
+      <select id="tool-select" class="flex-1 text-sm border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-gray-50 dark:bg-gray-900 font-mono"></select>
+      <button id="tool-run" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm px-4 rounded-lg">Run</button>
+    </div>
+    <div id="tool-desc" class="text-xs text-gray-500 dark:text-gray-400 mb-2"></div>
+    <textarea id="tool-args" rows="3" class="w-full text-xs font-mono border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-gray-50 dark:bg-gray-900"></textarea>
+    <pre id="tool-result" class="mt-2 text-xs bg-gray-900 text-gray-100 rounded-lg p-3 overflow-x-auto max-h-56 hidden"></pre>
+  </details>
 
   <div class="mt-6 text-xs text-gray-400 dark:text-gray-600 border-t border-gray-200 dark:border-gray-800 pt-4 flex flex-wrap gap-2 justify-between">
     <span id="mcp-debug">WebMCP tools register on page load.</span>
@@ -217,7 +217,7 @@
     var score = Math.min(100, raw * 8);
     var counts = { high: 0, medium: 0, low: 0 };
     flags.forEach(function (f) { counts[f.severity] = (counts[f.severity] || 0) + 1; });
-    var level = score >= 60 ? 'High' : score >= 30 ? 'Elevated' : score > 0 ? 'Moderate' : 'Low';
+    var level = score >= 60 ? 'High' : score >= 35 ? 'Elevated' : score >= 15 ? 'Moderate' : 'Low';
     return { score: score, level: level, counts: counts };
   }
 
