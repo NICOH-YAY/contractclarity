@@ -198,15 +198,61 @@
     return { avgSentenceLength: avg, legaleseDensityPct: density, level: level, words: words.length };
   }
 
+  // How much to trust each rule. A miss on a high-confidence pattern is rare; the
+  // lower ones are marked "needs review" so nothing reads as definitive.
+  var RULE_CONF = {
+    auto_renewal: 'high', termination_convenience: 'medium', indemnification: 'high',
+    non_compete: 'high', arbitration: 'high', liquidated_damages: 'medium',
+    unilateral_change: 'medium', ip_assignment: 'medium', confidentiality: 'high',
+    assignment_restrict: 'medium'
+  };
+
+  function detectSections(text) {
+    var re = /(?:^|\n)\s*(\d+)\.\s+([A-Z][A-Za-z0-9 ,/&()'-]{2,60})/g, m, out = [];
+    while ((m = re.exec(text)) !== null) out.push({ id: m[1], title: m[2].trim(), index: m.index });
+    return out;
+  }
+  function sectionTitleAt(sections, idx) {
+    var title = null;
+    for (var i = 0; i < sections.length; i++) { if (sections[i].index <= idx) title = sections[i].title; else break; }
+    return title;
+  }
+  function sentenceAt(text, idx) {
+    var before = Math.max(text.lastIndexOf('.', idx), text.lastIndexOf('!', idx), text.lastIndexOf('?', idx), text.lastIndexOf('\n', idx));
+    var start = before >= 0 ? before + 1 : 0;
+    var nextEnd = function (from) { var a = text.slice(from).search(/[.!?]/); return a >= 0 ? from + a + 1 : text.length; };
+    var end = nextEnd(idx);
+    if (end - start < 40) end = nextEnd(end); // reach past a short heading into the clause body
+    return text.slice(start, end).replace(/\s+/g, ' ').trim();
+  }
+
   function riskFlags(text) {
+    var sections = detectSections(text);
     var flags = [];
     RISK_RULES.forEach(function (r) {
       var m = text.match(r.re);
-      if (m) flags.push({ id: r.id, label: r.label, severity: r.severity, why: r.why, snippet: snippetAround(text, m.index, m[0].length) });
+      if (m) {
+        var conf = RULE_CONF[r.id] || 'medium';
+        flags.push({
+          id: r.id, label: r.label, severity: r.severity, why: r.why,
+          confidence: conf, needsReview: conf !== 'high',
+          section: sectionTitleAt(sections, m.index),
+          quote: sentenceAt(text, m.index),
+          snippet: snippetAround(text, m.index, m[0].length)
+        });
+      }
     });
     if (/liabilit/i.test(text)) {
       var cap = /(limitation of liability|liability (?:is|shall be|will be) (?:capped|limited)|in no event shall[^.]{0,80}exceed)/i.test(text);
-      if (!cap) flags.push({ id: 'uncapped_liability', label: 'No liability cap found', severity: 'high', why: 'Liability is discussed but no cap or ceiling was detected.', snippet: '' });
+      if (!cap) {
+        var li = text.search(/liabilit/i);
+        flags.push({
+          id: 'uncapped_liability', label: 'No liability cap found', severity: 'high',
+          why: 'Liability is discussed but no cap was detected. Read the liability section to confirm.',
+          confidence: 'low', needsReview: true,
+          section: sectionTitleAt(sections, li), quote: sentenceAt(text, li), snippet: ''
+        });
+      }
     }
     return flags;
   }
@@ -266,9 +312,23 @@
     var bIds = b.riskFlags.map(function (f) { return f.id; });
     var matrix = ruleIds.map(function (r) { return { flag: r.label, inPrimary: aIds.indexOf(r.id) >= 0, inSecondary: bIds.indexOf(r.id) >= 0 }; })
       .filter(function (row) { return row.inPrimary || row.inSecondary; });
+    var weigh = function (flags) { var w = { high: 3, medium: 2, low: 1 }; return flags.reduce(function (s, f) { return s + (w[f.severity] || 1); }, 0); };
+    var pw = weigh(a.riskFlags), sw = weigh(b.riskFlags);
+    var moreFavorable = pw < sw ? 'primary' : sw < pw ? 'secondary' : 'tie';
+
+    var diffs = [];
+    ['termLength', 'governingLaw', 'paymentTerms', 'noticePeriod'].forEach(function (k) {
+      var pv = a.terms[k] || null, sv = b.terms[k] || null;
+      if (pv !== sv) diffs.push({ field: k, primary: pv, secondary: sv });
+    });
+
     return {
       ok: true,
       riskMatrix: matrix,
+      riskWeight: { primary: pw, secondary: sw },
+      moreFavorable: moreFavorable,
+      moreFavorableNote: 'The side with fewer and less severe risk flags. Lower weight is friendlier to the reader.',
+      termDifferences: diffs,
       terms: {
         primary: { termLength: a.terms.termLength, governingLaw: a.terms.governingLaw, paymentTerms: a.terms.paymentTerms, amounts: a.terms.amounts.length },
         secondary: { termLength: b.terms.termLength, governingLaw: b.terms.governingLaw, paymentTerms: b.terms.paymentTerms, amounts: b.terms.amounts.length }
@@ -283,6 +343,15 @@
     low: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-600'
   };
 
+  // Everything below builds nodes with textContent, never innerHTML, so contract
+  // text and shared-link content can never inject markup or script into the page.
+  function elWith(tag, cls, txt) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (txt !== undefined && txt !== null) n.textContent = txt;
+    return n;
+  }
+
   function renderAnalysis() {
     el('primary-char-count').textContent = primary.length + ' chars';
     el('secondary-char-count').textContent = secondary.length + ' chars';
@@ -291,13 +360,13 @@
 
     var a = analyze(primary);
     var terms = el('terms'), flagsEl = el('risk-flags');
-    terms.innerHTML = ''; flagsEl.innerHTML = '';
+    terms.textContent = ''; flagsEl.textContent = '';
     if (a.empty) {
       el('readability').textContent = '';
       el('risk-level').textContent = '';
       el('risk-count').textContent = '';
-      terms.innerHTML = '<div class="text-gray-400 text-sm">Load a contract to see terms.</div>';
-      flagsEl.innerHTML = '<div class="text-gray-400 text-sm">No contract loaded.</div>';
+      terms.appendChild(elWith('div', 'text-gray-400 text-sm', 'Load a contract to see terms.'));
+      flagsEl.appendChild(elWith('div', 'text-gray-400 text-sm', 'No contract loaded.'));
       return;
     }
     el('readability').textContent = a.readability.level + ' · ~' + a.readability.avgSentenceLength + ' words/sentence';
@@ -310,27 +379,36 @@
     };
     rl.textContent = 'Risk ' + a.riskLevel + ' · ' + a.riskScore + '/100';
     rl.className = 'text-xs font-semibold px-2 py-1 rounded-full ' + (rlClass[a.riskLevel] || rlClass.Low);
+
     var t = a.terms;
-    function row(k, v) { return '<div class="flex gap-2"><dt class="text-gray-400 w-28 flex-none">' + k + '</dt><dd>' + (v || '<span class="text-gray-400">not found</span>') + '</dd></div>'; }
-    terms.innerHTML =
-      row('Parties', t.parties.length ? t.parties.join(' & ') : null) +
-      row('Effective', t.effectiveDate) +
-      row('Term', t.termLength) +
-      row('Notice', t.noticePeriod ? t.noticePeriod + ' days' : null) +
-      row('Payment', t.paymentTerms) +
-      row('Governing law', t.governingLaw) +
-      row('Amounts', t.amounts.length ? t.amounts.join(', ') : null);
+    function termRow(k, v) {
+      var row = elWith('div', 'flex gap-2');
+      row.appendChild(elWith('dt', 'text-gray-400 w-28 flex-none', k));
+      row.appendChild(v ? elWith('dd', '', v) : elWith('dd', 'text-gray-400', 'not found'));
+      return row;
+    }
+    terms.appendChild(termRow('Parties', t.parties.length ? t.parties.join(' & ') : null));
+    terms.appendChild(termRow('Effective', t.effectiveDate));
+    terms.appendChild(termRow('Term', t.termLength));
+    terms.appendChild(termRow('Notice', t.noticePeriod ? t.noticePeriod + ' days' : null));
+    terms.appendChild(termRow('Payment', t.paymentTerms));
+    terms.appendChild(termRow('Governing law', t.governingLaw));
+    terms.appendChild(termRow('Amounts', t.amounts.length ? t.amounts.join(', ') : null));
 
     el('risk-count').textContent = '(' + a.riskFlags.length + ')';
     if (!a.riskFlags.length) {
-      flagsEl.innerHTML = '<div class="text-sm text-green-600 dark:text-green-400">No common risk clauses detected.</div>';
+      flagsEl.appendChild(elWith('div', 'text-sm text-green-600 dark:text-green-400', 'No common risk clauses detected.'));
     } else {
       a.riskFlags.forEach(function (f) {
-        var d = document.createElement('div');
-        d.className = 'border rounded-lg p-2 text-sm ' + (SEV_CLASS[f.severity] || SEV_CLASS.low);
-        d.innerHTML = '<div class="flex items-center gap-2"><span class="font-semibold">' + f.label + '</span><span class="text-xs uppercase opacity-70">' + f.severity + '</span></div>' +
-          '<div class="text-xs mt-0.5 opacity-90">' + f.why + '</div>' +
-          (f.snippet ? '<div class="text-xs mt-1 italic opacity-70">“' + f.snippet.slice(0, 140) + '…”</div>' : '');
+        var d = elWith('div', 'border rounded-lg p-2 text-sm ' + (SEV_CLASS[f.severity] || SEV_CLASS.low));
+        var head = elWith('div', 'flex items-center gap-2 flex-wrap');
+        head.appendChild(elWith('span', 'font-semibold', f.label));
+        head.appendChild(elWith('span', 'text-xs uppercase opacity-70', f.severity));
+        if (f.needsReview) head.appendChild(elWith('span', 'text-xs px-1.5 rounded bg-black/10 dark:bg-white/10', 'needs review'));
+        d.appendChild(head);
+        d.appendChild(elWith('div', 'text-xs mt-0.5 opacity-90', f.why));
+        if (f.section) d.appendChild(elWith('div', 'text-xs mt-1 opacity-70', 'Section: ' + f.section));
+        if (f.quote) d.appendChild(elWith('div', 'text-xs mt-1 italic opacity-70', '“' + f.quote.slice(0, 160) + '”'));
         flagsEl.appendChild(d);
       });
     }
@@ -443,6 +521,24 @@
     { name: 'compare_contracts', description: 'Compare the primary and secondary contracts on which risk clauses each contains and on their key terms. Returns a matrix and a term comparison.', annotations: { readOnlyHint: true },
       inputSchema: { type: 'object', properties: {} },
       execute: function () { return compareContracts(); } },
+    { name: 'list_sections', description: 'List the numbered sections the page found in a contract, with their headings. Use this to ask for one section instead of the whole document.', annotations: { readOnlyHint: true },
+      inputSchema: { type: 'object', properties: { which: { type: 'string', enum: ['primary', 'secondary'] } }, required: ['which'] },
+      execute: function (a) { var w = whichSide(a && a.which); return { ok: true, which: w, sections: detectSections(textOf(w)).map(function (s) { return { id: s.id, title: s.title }; }) }; } },
+    { name: 'get_clause_by_id', description: 'Return the text of one numbered section by its id, from its heading to the next section. Reference the id from list_sections.', annotations: { readOnlyHint: true },
+      inputSchema: { type: 'object', properties: { which: { type: 'string', enum: ['primary', 'secondary'] }, sectionId: { type: 'string' } }, required: ['which', 'sectionId'] },
+      execute: function (a) {
+        var w = whichSide(a && a.which); var text = textOf(w); var secs = detectSections(text); var id = String(a && a.sectionId);
+        var i = -1; for (var k = 0; k < secs.length; k++) { if (secs[k].id === id) { i = k; break; } }
+        if (i < 0) return { ok: false, error: 'No section ' + id + ' in this contract.' };
+        var start = secs[i].index; var end = i + 1 < secs.length ? secs[i + 1].index : text.length;
+        return { ok: true, which: w, id: secs[i].id, title: secs[i].title, text: text.slice(start, end).replace(/\s+/g, ' ').trim() };
+      } },
+    { name: 'explain_flag', description: 'Return the full detail of one risk flag by its id: severity, confidence, why it matters, whether it needs review, the section it came from, and the exact quote.', annotations: { readOnlyHint: true },
+      inputSchema: { type: 'object', properties: { which: { type: 'string', enum: ['primary', 'secondary'] }, flagId: { type: 'string' } }, required: ['which', 'flagId'] },
+      execute: function (a) { var w = whichSide(a && a.which); var id = String(a && a.flagId); var flags = analyze(textOf(w)).riskFlags || []; var f = null; for (var k = 0; k < flags.length; k++) { if (flags[k].id === id) { f = flags[k]; break; } } if (!f) return { ok: false, error: 'No flag ' + id + ' in this contract.' }; return { ok: true, which: w, flag: f }; } },
+    { name: 'compare_selected_clauses', description: 'Compare specific clause topics across both contracts and return the passage from each side. Topics: termination, payment, liability, confidentiality, renewal, indemnification, governing law, non-compete.', annotations: { readOnlyHint: true },
+      inputSchema: { type: 'object', properties: { topics: { type: 'array', items: { type: 'string' } } }, required: ['topics'] },
+      execute: function (a) { var topics = (a && a.topics) || []; return { ok: true, comparisons: topics.map(function (tp) { return { topic: String(tp), primary: getClause(primary, String(tp)), secondary: getClause(secondary, String(tp)) }; }) }; } },
     { name: 'get_both_contracts', description: 'Return the full text of both contracts at once.', annotations: { readOnlyHint: true },
       inputSchema: { type: 'object', properties: {} },
       execute: function () { return { ok: true, primary: primary || '', secondary: secondary || '' }; } }
@@ -512,6 +608,10 @@
     get_clause: '{ "which": "primary", "topic": "termination" }',
     assess_risk: '{ "which": "primary" }',
     compare_contracts: '{}',
+    list_sections: '{ "which": "primary" }',
+    get_clause_by_id: '{ "which": "primary", "sectionId": "3" }',
+    explain_flag: '{ "which": "primary", "flagId": "non_compete" }',
+    compare_selected_clauses: '{ "topics": ["termination", "liability"] }',
     get_both_contracts: '{}'
   };
   var sel = el('tool-select'), argsTA = el('tool-args'), resultEl = el('tool-result'), descEl = el('tool-desc');
