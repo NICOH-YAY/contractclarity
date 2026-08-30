@@ -24,6 +24,7 @@ All registered on `document.modelContext.registerTool` in the single-object form
 | `list_risk_flags` | Just the detected risky clauses, with severity |
 | `extract_terms` | Parties, dates, amounts, term, notice, payment, governing law |
 | `get_clause` | The passage covering a topic (termination, liability, ...) |
+| `assess_risk` | A 0 to 100 risk score, a level, and severity counts |
 | `compare_contracts` | A clause matrix and term comparison across both |
 | `get_both_contracts` | Both texts at once |
 
