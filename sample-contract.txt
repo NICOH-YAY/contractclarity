@@ -1,0 +1,21 @@
+SERVICES AGREEMENT
+
+This Services Agreement (the "Agreement") is entered into as of Effective date: March 1, 2026, by and between Northwind Studios LLC ("Provider") and Acme Retail Inc. ("Client").
+
+1. TERM. The term of this Agreement is 12 months and shall automatically renew for successive 12-month periods unless either party gives 30 days written notice.
+
+2. FEES. Client shall pay Provider $4,500 per month, Net 15. A late fee of 1.5% applies to overdue amounts.
+
+3. TERMINATION. Provider may terminate this Agreement at any time for convenience upon 30 days notice.
+
+4. CONFIDENTIALITY. Each party shall keep the other's Confidential Information secret for a period of 3 years.
+
+5. INTELLECTUAL PROPERTY. All deliverables are a work made for hire and Provider assigns all right, title and interest to Client.
+
+6. INDEMNIFICATION. Provider shall indemnify Client against any claims arising from the services.
+
+7. LIABILITY. In no event shall either party's liability exceed the fees paid in the prior 3 months.
+
+8. GOVERNING LAW. This Agreement is governed by the laws of the State of Delaware.
+
+9. NON-COMPETE. Provider shall not compete with Client within the same market for 12 months after termination.

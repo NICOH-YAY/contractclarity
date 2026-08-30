@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ContractClarity — an agent-ready contract reader (WebMCP)</title>
+  <meta name="description" content="Upload a contract. The page extracts terms and flags risky clauses on its own, and exposes those findings to your AI agent through WebMCP so it can explain and compare in plain English. Nothing leaves your browser." />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+  <!-- WebMCP polyfill: only used in a non-WebMCP browser so the page is testable
+       everywhere. It never replaces a native implementation. -->
+  <script src="https://cdn.jsdelivr.net/npm/@mcp-b/webmcp-polyfill@5.0.1/dist/index.iife.js"></script>
+  <style>
+    .drop-zone.dragover { border-color: #6366f1; background: #eef2ff; }
+    .dark .drop-zone.dragover { background: #1e1b4b; }
+    #toast { transition: opacity 0.3s, transform 0.3s; }
+  </style>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+
+<div id="toast" class="fixed top-4 right-4 bg-indigo-600 text-white px-4 py-2 rounded-lg shadow-lg text-sm opacity-0 -translate-y-2 pointer-events-none z-50">Copied</div>
+
+<div class="max-w-6xl mx-auto p-4 md:p-8">
+
+  <header class="flex flex-wrap items-center justify-between gap-3 mb-6">
+    <div>
+      <h1 class="text-3xl md:text-4xl font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-2">
+        📄 ContractClarity
+      </h1>
+      <p class="text-gray-600 dark:text-gray-400 text-sm mt-1 max-w-2xl">The page reads your contract, pulls out the terms, and flags the risky clauses. Your own AI agent reaches those findings through WebMCP and explains them. Nothing leaves your browser.</p>
+    </div>
+    <div class="flex items-center gap-3">
+      <button id="theme-toggle" class="p-2 rounded-full bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-lg">🌙</button>
+      <span id="mcp-status" class="text-xs font-semibold px-3 py-1.5 rounded-full bg-gray-200 dark:bg-gray-700">connecting</span>
+    </div>
+  </header>
+
+  <!-- Upload boxes -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <section class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
+      <div class="flex justify-between items-center mb-3">
+        <h2 class="font-semibold">Primary contract</h2>
+        <span class="text-xs text-gray-400" id="primary-char-count">0 chars</span>
+      </div>
+      <div id="primary-drop" class="drop-zone border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-4 text-center cursor-pointer hover:border-indigo-400">
+        <input type="file" id="primary-file-input" accept=".txt,.pdf,.docx" class="hidden" />
+        <p class="text-sm text-gray-500 dark:text-gray-400">Drag and drop, or <span class="text-indigo-600 underline">browse</span> (.txt, .pdf, .docx)</p>
+      </div>
+      <textarea id="primary-contract" rows="7" class="mt-3 w-full border border-gray-200 dark:border-gray-700 rounded-lg p-3 text-sm bg-gray-50 dark:bg-gray-900 focus:ring-2 focus:ring-indigo-300" placeholder="Paste contract text..."></textarea>
+      <div class="flex flex-wrap gap-2 mt-3 text-sm items-center">
+        <button data-load-sample="primary" class="text-indigo-600 dark:text-indigo-400 underline text-xs">Load sample</button>
+        <button id="primary-clear-btn" class="ml-auto text-gray-400 hover:text-gray-600 text-xs px-3 py-1 rounded-lg border border-gray-200 dark:border-gray-700">Clear</button>
+        <button id="share-primary-btn" class="text-indigo-500 dark:text-indigo-400 underline text-xs">Share link</button>
+      </div>
+      <div id="primary-status" class="mt-1 text-xs text-gray-500 dark:text-gray-400"></div>
+    </section>
+
+    <section class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
+      <div class="flex justify-between items-center mb-3">
+        <h2 class="font-semibold">Secondary contract (to compare)</h2>
+        <span class="text-xs text-gray-400" id="secondary-char-count">0 chars</span>
+      </div>
+      <div id="secondary-drop" class="drop-zone border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-4 text-center cursor-pointer hover:border-purple-400">
+        <input type="file" id="secondary-file-input" accept=".txt,.pdf,.docx" class="hidden" />
+        <p class="text-sm text-gray-500 dark:text-gray-400">Drag and drop, or <span class="text-purple-600 underline">browse</span></p>
+      </div>
+      <textarea id="secondary-contract" rows="7" class="mt-3 w-full border border-gray-200 dark:border-gray-700 rounded-lg p-3 text-sm bg-gray-50 dark:bg-gray-900 focus:ring-2 focus:ring-purple-300" placeholder="Paste a second contract to compare..."></textarea>
+      <div class="flex flex-wrap gap-2 mt-3 text-sm items-center">
+        <button data-load-sample="secondary" class="text-purple-600 dark:text-purple-400 underline text-xs">Load sample</button>
+        <button id="secondary-clear-btn" class="ml-auto text-gray-400 hover:text-gray-600 text-xs px-3 py-1 rounded-lg border border-gray-200 dark:border-gray-700">Clear</button>
+        <button id="share-secondary-btn" class="text-purple-500 dark:text-purple-400 underline text-xs">Share link</button>
+      </div>
+      <div id="secondary-status" class="mt-1 text-xs text-gray-500 dark:text-gray-400"></div>
+    </section>
+  </div>
+
+  <!-- Page-owned analysis of the primary contract -->
+  <section class="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-semibold">On-page analysis <span class="text-xs font-normal text-gray-400">of the primary contract</span></h2>
+      <span id="readability" class="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-300"></span>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div>
+        <h3 class="text-xs font-semibold text-gray-400 uppercase mb-2">Key terms</h3>
+        <dl id="terms" class="text-sm space-y-1 text-gray-700 dark:text-gray-300"></dl>
+      </div>
+      <div class="md:col-span-2">
+        <h3 class="text-xs font-semibold text-gray-400 uppercase mb-2">Risk flags <span id="risk-count" class="text-gray-400"></span></h3>
+        <div id="risk-flags" class="flex flex-col gap-2"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Prompts + tester -->
+  <div class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <section class="bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 rounded-xl p-5">
+      <h3 class="font-semibold text-indigo-800 dark:text-indigo-300 mb-1">One-click prompts for your agent</h3>
+      <p class="text-xs text-indigo-700 dark:text-indigo-400 mb-3">Copy one, then paste it into ChatGPT or your MCP assistant after loading a contract. These call the page's tools.</p>
+      <div id="prompts" class="flex flex-col gap-2"></div>
+    </section>
+
+    <section class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
+      <h3 class="font-semibold mb-1">Tool tester</h3>
+      <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">Run any WebMCP tool by hand, exactly as an agent would. Handy without an agent.</p>
+      <div class="flex gap-2 mb-2">
+        <select id="tool-select" class="flex-1 text-sm border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-gray-50 dark:bg-gray-900 font-mono"></select>
+        <button id="tool-run" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm px-4 rounded-lg">Run</button>
+      </div>
+      <div id="tool-desc" class="text-xs text-gray-500 dark:text-gray-400 mb-2"></div>
+      <textarea id="tool-args" rows="3" class="w-full text-xs font-mono border border-gray-200 dark:border-gray-700 rounded-lg p-2 bg-gray-50 dark:bg-gray-900"></textarea>
+      <pre id="tool-result" class="mt-2 text-xs bg-gray-900 text-gray-100 rounded-lg p-3 overflow-x-auto max-h-56 hidden"></pre>
+    </section>
+  </div>
+
+  <div class="mt-6 text-xs text-gray-400 dark:text-gray-600 border-t border-gray-200 dark:border-gray-800 pt-4 flex flex-wrap gap-2 justify-between">
+    <span id="mcp-debug">WebMCP tools register on page load.</span>
+    <span>Built for the WebMCP Hackathon · everything runs in your browser</span>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var primary = '';
+  var secondary = '';
+
+  var el = function (id) { return document.getElementById(id); };
+  var primaryTA = el('primary-contract');
+  var secondaryTA = el('secondary-contract');
+
+  function toast(msg) {
+    var t = el('toast');
+    t.textContent = msg;
+    t.style.opacity = '1'; t.style.transform = 'translateY(0)'; t.style.pointerEvents = 'auto';
+    setTimeout(function () { t.style.opacity = '0'; t.style.transform = 'translateY(-8px)'; t.style.pointerEvents = 'none'; }, 2000);
+  }
+  function setStatus(id, msg) { el(id).textContent = msg; }
+
+  // ---------------------------------------------------------------------------
+  // The page's own analysis. Deterministic term extraction and a clause risk
+  // rulebook. This is the capability the page owns; the agent reads it and
+  // explains it in plain English.
+  // ---------------------------------------------------------------------------
+
+  var RISK_RULES = [
+    { id: 'auto_renewal', label: 'Auto-renewal', severity: 'medium', re: /(auto(?:matic(?:ally)?)?[ -]?renew\w*|renew(?:s|ed)? for (?:successive|additional|another))/i, why: 'Renews on its own unless you cancel in time.' },
+    { id: 'termination_convenience', label: 'Termination for convenience', severity: 'medium', re: /terminat\w+[^.]{0,45}(for convenience|without cause|at any time|sole discretion)/i, why: 'The other side can end the deal at will.' },
+    { id: 'indemnification', label: 'Indemnification', severity: 'medium', re: /indemnif(?:y|ication|ies|ied)/i, why: 'You may have to cover the other party’s losses.' },
+    { id: 'non_compete', label: 'Non-compete', severity: 'high', re: /(non-?compete|shall not (?:directly or indirectly )?compete|restrictive covenant)/i, why: 'Limits your future work or business.' },
+    { id: 'arbitration', label: 'Arbitration or jury waiver', severity: 'medium', re: /(binding arbitration|waiv\w+[^.]{0,30}(jury|class action)|class action waiver)/i, why: 'Gives up court or class-action rights.' },
+    { id: 'liquidated_damages', label: 'Penalty or late fees', severity: 'medium', re: /(liquidated damages|late fee|penalty of|interest (?:of|at)\s+\d)/i, why: 'Fixed penalties or fees for lateness or breach.' },
+    { id: 'unilateral_change', label: 'Unilateral changes', severity: 'high', re: /reserves? the right to (?:modify|change|amend|update)[^.]{0,45}(at any time|without notice|sole discretion)/i, why: 'One side can change the terms on their own.' },
+    { id: 'ip_assignment', label: 'IP assignment', severity: 'medium', re: /(work(?: made)? for hire|assigns? all right,? title|intellectual property[^.]{0,30}assign)/i, why: 'You may be handing over ownership of your work.' },
+    { id: 'confidentiality', label: 'Confidentiality obligation', severity: 'low', re: /(confidential information|non-disclosure|keep [^.]{0,20}confidential)/i, why: 'You must keep certain information secret.' },
+    { id: 'assignment_restrict', label: 'Assignment restricted', severity: 'low', re: /((?:may not|shall not) assign|assignment[^.]{0,25}(?:prior written )?consent)/i, why: 'You cannot transfer the contract freely.' }
+  ];
+
+  function snippetAround(text, index, len) {
+    var start = Math.max(0, index - 40);
+    var end = Math.min(text.length, index + (len || 0) + 110);
+    return text.slice(start, end).replace(/\s+/g, ' ').trim();
+  }
+  function firstGroup(text, re) { var m = text.match(re); return m && m[1] ? m[1].trim() : null; }
+  function uniq(arr) { return arr ? arr.filter(function (v, i, a) { return a.indexOf(v) === i; }) : []; }
+
+  function extractTerms(text) {
+    var parties = [];
+    var pm = text.match(/(?:by and between|between)\s+(.{4,70}?)\s+(?:and|&)\s+(.{4,70}?)(?:[.,(]|\s+\()/i);
+    if (pm) { parties = [pm[1].trim(), pm[2].trim()]; }
+    var amounts = uniq(text.match(/\$\s?[\d,]+(?:\.\d{2})?/g) || []).slice(0, 6);
+    var dates = uniq(text.match(/\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|[A-Z][a-z]+ \d{1,2},? \d{4})\b/g) || []).slice(0, 6);
+    var net = firstGroup(text, /net\s+(\d+)/i);
+    return {
+      parties: parties,
+      effectiveDate: firstGroup(text, /effective (?:date|as of)[:\s]+([A-Z][a-z]+ \d{1,2},? \d{4}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4})/i),
+      termLength: firstGroup(text, /(?:term of (?:this agreement )?(?:is |shall be |will be )?|for a (?:period|term) of )(\d+\s+(?:days|weeks|months|years))/i),
+      noticePeriod: firstGroup(text, /(\d+)\s+days[^.]{0,25}(?:written )?notice/i),
+      paymentTerms: net ? ('Net ' + net + ' days') : null,
+      governingLaw: firstGroup(text, /governed by(?: and construed in accordance with)? the laws of (?:the )?([A-Za-z ]{3,40}?)(?:[.,;]|\s+and\b)/i),
+      amounts: amounts,
+      dates: dates
+    };
+  }
+
+  function readability(text) {
+    var sentences = text.split(/[.!?]+/).filter(function (s) { return s.trim().length > 0; });
+    var words = text.split(/\s+/).filter(Boolean);
+    var avg = sentences.length ? Math.round(words.length / sentences.length) : 0;
+    var jargon = (text.match(/\b(hereinafter|whereas|notwithstanding|herein|thereof|pursuant|aforesaid|hereto|thereto|forthwith|indemnif\w+)\b/gi) || []).length;
+    var density = words.length ? +(jargon / words.length * 100).toFixed(1) : 0;
+    var level = (avg > 30 || density > 1.2) ? 'Dense legalese' : (avg > 20 ? 'Moderate' : 'Plain');
+    return { avgSentenceLength: avg, legaleseDensityPct: density, level: level, words: words.length };
+  }
+
+  function riskFlags(text) {
+    var flags = [];
+    RISK_RULES.forEach(function (r) {
+      var m = text.match(r.re);
+      if (m) flags.push({ id: r.id, label: r.label, severity: r.severity, why: r.why, snippet: snippetAround(text, m.index, m[0].length) });
+    });
+    if (/liabilit/i.test(text)) {
+      var cap = /(limitation of liability|liability (?:is|shall be|will be) (?:capped|limited)|in no event shall[^.]{0,80}exceed)/i.test(text);
+      if (!cap) flags.push({ id: 'uncapped_liability', label: 'No liability cap found', severity: 'high', why: 'Liability is discussed but no cap or ceiling was detected.', snippet: '' });
+    }
+    return flags;
+  }
+
+  function analyze(text) {
+    text = text || '';
+    if (text.trim().length < 20) return { empty: true, length: text.length };
+    return {
+      length: text.length,
+      terms: extractTerms(text),
+      riskFlags: riskFlags(text),
+      readability: readability(text),
+      sectionCount: (text.match(/^\s*\d+\.\s+[A-Z]/gm) || []).length
+    };
+  }
+
+  var CLAUSE_TOPICS = {
+    termination: /terminat\w+/i,
+    payment: /payment|invoice|fees?\b/i,
+    liability: /liabilit\w+/i,
+    confidentiality: /confidential\w*/i,
+    renewal: /renew\w*/i,
+    indemnification: /indemnif\w+/i,
+    'governing law': /governed by|governing law/i,
+    'non-compete': /non-?compete|compete/i
+  };
+  function getClause(text, topic) {
+    var re = CLAUSE_TOPICS[(topic || '').toLowerCase()];
+    if (!re) return { found: false, note: 'Unknown topic. Try termination, payment, liability, confidentiality, renewal, indemnification, governing law, or non-compete.' };
+    var m = text.match(re);
+    if (!m) return { found: false, topic: topic };
+    var start = Math.max(0, m.index - 30);
+    var end = Math.min(text.length, m.index + 500);
+    return { found: true, topic: topic, text: text.slice(start, end).replace(/\s+/g, ' ').trim() };
+  }
+
+  function compareContracts() {
+    var a = analyze(primary), b = analyze(secondary);
+    if (a.empty || b.empty) return { ok: false, error: 'Both a primary and a secondary contract are needed to compare.' };
+    var ruleIds = RISK_RULES.map(function (r) { return { id: r.id, label: r.label }; }).concat([{ id: 'uncapped_liability', label: 'No liability cap found' }]);
+    var aIds = a.riskFlags.map(function (f) { return f.id; });
+    var bIds = b.riskFlags.map(function (f) { return f.id; });
+    var matrix = ruleIds.map(function (r) { return { flag: r.label, inPrimary: aIds.indexOf(r.id) >= 0, inSecondary: bIds.indexOf(r.id) >= 0 }; })
+      .filter(function (row) { return row.inPrimary || row.inSecondary; });
+    return {
+      ok: true,
+      riskMatrix: matrix,
+      terms: {
+        primary: { termLength: a.terms.termLength, governingLaw: a.terms.governingLaw, paymentTerms: a.terms.paymentTerms, amounts: a.terms.amounts.length },
+        secondary: { termLength: b.terms.termLength, governingLaw: b.terms.governingLaw, paymentTerms: b.terms.paymentTerms, amounts: b.terms.amounts.length }
+      },
+      readability: { primary: a.readability.level, secondary: b.readability.level }
+    };
+  }
+
+  var SEV_CLASS = {
+    high: 'bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300 border-red-200 dark:border-red-900',
+    medium: 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300 border-amber-200 dark:border-amber-900',
+    low: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-600'
+  };
+
+  function renderAnalysis() {
+    el('primary-char-count').textContent = primary.length + ' chars';
+    el('secondary-char-count').textContent = secondary.length + ' chars';
+    if (primaryTA.value !== primary) primaryTA.value = primary;
+    if (secondaryTA.value !== secondary) secondaryTA.value = secondary;
+
+    var a = analyze(primary);
+    var terms = el('terms'), flagsEl = el('risk-flags');
+    terms.innerHTML = ''; flagsEl.innerHTML = '';
+    if (a.empty) {
+      el('readability').textContent = '';
+      el('risk-count').textContent = '';
+      terms.innerHTML = '<div class="text-gray-400 text-sm">Load a contract to see terms.</div>';
+      flagsEl.innerHTML = '<div class="text-gray-400 text-sm">No contract loaded.</div>';
+      return;
+    }
+    el('readability').textContent = a.readability.level + ' · ~' + a.readability.avgSentenceLength + ' words/sentence';
+    var t = a.terms;
+    function row(k, v) { return '<div class="flex gap-2"><dt class="text-gray-400 w-28 flex-none">' + k + '</dt><dd>' + (v || '<span class="text-gray-400">not found</span>') + '</dd></div>'; }
+    terms.innerHTML =
+      row('Parties', t.parties.length ? t.parties.join(' & ') : null) +
+      row('Effective', t.effectiveDate) +
+      row('Term', t.termLength) +
+      row('Notice', t.noticePeriod ? t.noticePeriod + ' days' : null) +
+      row('Payment', t.paymentTerms) +
+      row('Governing law', t.governingLaw) +
+      row('Amounts', t.amounts.length ? t.amounts.join(', ') : null);
+
+    el('risk-count').textContent = '(' + a.riskFlags.length + ')';
+    if (!a.riskFlags.length) {
+      flagsEl.innerHTML = '<div class="text-sm text-green-600 dark:text-green-400">No common risk clauses detected.</div>';
+    } else {
+      a.riskFlags.forEach(function (f) {
+        var d = document.createElement('div');
+        d.className = 'border rounded-lg p-2 text-sm ' + (SEV_CLASS[f.severity] || SEV_CLASS.low);
+        d.innerHTML = '<div class="flex items-center gap-2"><span class="font-semibold">' + f.label + '</span><span class="text-xs uppercase opacity-70">' + f.severity + '</span></div>' +
+          '<div class="text-xs mt-0.5 opacity-90">' + f.why + '</div>' +
+          (f.snippet ? '<div class="text-xs mt-1 italic opacity-70">“' + f.snippet.slice(0, 140) + '…”</div>' : '');
+        flagsEl.appendChild(d);
+      });
+    }
+  }
+
+  async function handleFile(file, whichSide) {
+    var ext = file.name.split('.').pop().toLowerCase();
+    var text = '';
+    try {
+      if (ext === 'txt') text = await file.text();
+      else if (ext === 'pdf') {
+        var buf = await file.arrayBuffer();
+        var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+        for (var i = 1; i <= pdf.numPages; i++) {
+          var page = await pdf.getPage(i);
+          var content = await page.getTextContent();
+          text += content.items.map(function (c) { return c.str; }).join(' ') + '\n';
+        }
+      } else if (ext === 'docx') {
+        var b = await file.arrayBuffer();
+        var res = await mammoth.extractRawText({ arrayBuffer: b });
+        text = res.value;
+      } else throw new Error('Unsupported file type');
+    } catch (e) {
+      setStatus(whichSide === 'primary' ? 'primary-status' : 'secondary-status', 'Error: ' + e.message);
+      return;
+    }
+    setContract(whichSide, text, 'Loaded ' + file.name);
+  }
+
+  function setContract(whichSide, text, msg) {
+    if (whichSide === 'primary') { primary = text; setStatus('primary-status', msg || 'Updated'); }
+    else { secondary = text; setStatus('secondary-status', msg || 'Updated'); }
+    renderAnalysis();
+  }
+
+  function setupDrop(zoneId, inputId, whichSide) {
+    var zone = el(zoneId), input = el(inputId);
+    zone.addEventListener('click', function () { input.click(); });
+    input.addEventListener('change', function (e) { if (e.target.files[0]) handleFile(e.target.files[0], whichSide); input.value = ''; });
+    zone.addEventListener('dragover', function (e) { e.preventDefault(); zone.classList.add('dragover'); });
+    zone.addEventListener('dragleave', function () { zone.classList.remove('dragover'); });
+    zone.addEventListener('drop', function (e) { e.preventDefault(); zone.classList.remove('dragover'); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0], whichSide); });
+  }
+  setupDrop('primary-drop', 'primary-file-input', 'primary');
+  setupDrop('secondary-drop', 'secondary-file-input', 'secondary');
+
+  primaryTA.addEventListener('input', function () { primary = primaryTA.value; renderAnalysis(); });
+  secondaryTA.addEventListener('input', function () { secondary = secondaryTA.value; renderAnalysis(); });
+  el('primary-clear-btn').addEventListener('click', function () { setContract('primary', '', 'Cleared'); });
+  el('secondary-clear-btn').addEventListener('click', function () { setContract('secondary', '', 'Cleared'); });
+
+  function share(whichSide) {
+    var txt = whichSide === 'primary' ? primary : secondary;
+    if (!txt) { toast('Nothing to share yet'); return; }
+    var encoded = btoa(unescape(encodeURIComponent(txt)));
+    var url = location.origin + location.pathname + '#' + (whichSide === 'primary' ? 'p' : 's') + '=' + encoded;
+    if (url.length > 8000) { toast('Too long to share as a link. Send the file instead.'); return; }
+    navigator.clipboard.writeText(url).then(function () { toast('Shareable link copied'); });
+  }
+  el('share-primary-btn').addEventListener('click', function () { share('primary'); });
+  el('share-secondary-btn').addEventListener('click', function () { share('secondary'); });
+
+  function loadFromHash() {
+    var h = location.hash;
+    try {
+      if (h.indexOf('#p=') === 0) setContract('primary', decodeURIComponent(escape(atob(h.slice(3)))), 'Loaded from shared link');
+      if (h.indexOf('#s=') === 0) setContract('secondary', decodeURIComponent(escape(atob(h.slice(3)))), 'Loaded from shared link');
+    } catch (e) { /* ignore bad hash */ }
+  }
+
+  var SAMPLE = 'SERVICES AGREEMENT\n\nThis Services Agreement (the "Agreement") is entered into as of Effective date: March 1, 2026, by and between Northwind Studios LLC ("Provider") and Acme Retail Inc. ("Client").\n\n1. TERM. The term of this Agreement is 12 months and shall automatically renew for successive 12-month periods unless either party gives 30 days written notice.\n\n2. FEES. Client shall pay Provider $4,500 per month, Net 15. A late fee of 1.5% applies to overdue amounts.\n\n3. TERMINATION. Provider may terminate this Agreement at any time for convenience upon 30 days notice.\n\n4. CONFIDENTIALITY. Each party shall keep the other’s Confidential Information secret for a period of 3 years.\n\n5. INTELLECTUAL PROPERTY. All deliverables are a work made for hire and Provider assigns all right, title and interest to Client.\n\n6. INDEMNIFICATION. Provider shall indemnify Client against any claims arising from the services.\n\n7. LIABILITY. In no event shall either party’s liability exceed the fees paid in the prior 3 months.\n\n8. GOVERNING LAW. This Agreement is governed by the laws of the State of Delaware.\n\n9. NON-COMPETE. Provider shall not compete with Client within the same market for 12 months after termination.';
+  document.querySelectorAll('[data-load-sample]').forEach(function (b) {
+    b.addEventListener('click', function () { setContract(b.getAttribute('data-load-sample'), SAMPLE, 'Sample loaded'); });
+  });
+
+  el('theme-toggle').addEventListener('click', function () {
+    document.documentElement.classList.toggle('dark');
+    el('theme-toggle').textContent = document.documentElement.classList.contains('dark') ? '☀️' : '🌙';
+  });
+
+  // ---------------------------------------------------------------------------
+  // WebMCP tools, in the correct single-object form
+  // ---------------------------------------------------------------------------
+  function whichSide(v) { return v === 'secondary' ? 'secondary' : 'primary'; }
+  function textOf(w) { return w === 'secondary' ? secondary : primary; }
+
+  var TOOLS = [
+    { name: 'get_contract', description: 'Return the full text of a loaded contract. which is primary or secondary.', annotations: { readOnlyHint: true },
+      inputSchema: { type: 'object', properties: { which: { type: 'string', enum: ['primary', 'secondary'] } }, required: ['which'] },
+      execute: function (a) { var w = whichSide(a && a.which); return { ok: true, which: w, length: textOf(w).length, text: textOf(w) || '' }; } },
+    { name: 'set_contract', description: 'Set or replace the text of a contract on the page. which is primary or secondary.', annotations: { readOnlyHint: false },
+      inputSchema: { type: 'object', properties: { which: { type: 'string', enum: ['primary', 'secondary'] }, text: { type: 'string' } }, required: ['which', 'text'] },
+      execute: function (a) { var w = whichSide(a && a.which); setContract(w, String((a && a.text) || ''), 'Set by agent'); return { ok: true, which: w, length: textOf(w).length }; } },
+    { name: 'analyze_contract', description: 'Run the on-page analysis of a contract and return the extracted terms, the detected risk flags with severity and a snippet, and a readability read. The page computes this structure over the text.', annotations: { readOnlyHint: true },
+      inputSchema: { type: 'object', properties: { which: { type: 'string', enum: ['primary', 'secondary'] } }, required: ['which'] },
+      execute: function (a) { var w = whichSide(a && a.which); return { ok: true, which: w, analysis: analyze(textOf(w)) }; } },
+    { name: 'list_risk_flags', description: 'Return just the risky clauses the page detected in a contract, each with a severity, a short reason, and the matching snippet.', annotations: { readOnlyHint: true },
+      inputSchema: { type: 'object', properties: { which: { type: 'string', enum: ['primary', 'secondary'] } }, required: ['which'] },
+      execute: function (a) { var w = whichSide(a && a.which); return { ok: true, which: w, flags: analyze(textOf(w)).riskFlags || [] }; } },
+    { name: 'extract_terms', description: 'Return the key terms the page pulled from a contract: parties, effective date, term length, notice period, payment terms, governing law, amounts, and dates.', annotations: { readOnlyHint: true },
+      inputSchema: { type: 'object', properties: { which: { type: 'string', enum: ['primary', 'secondary'] } }, required: ['which'] },
+      execute: function (a) { var w = whichSide(a && a.which); var r = analyze(textOf(w)); return { ok: true, which: w, terms: r.terms || null }; } },
+    { name: 'get_clause', description: 'Return the passage of a contract that covers a topic: termination, payment, liability, confidentiality, renewal, indemnification, governing law, or non-compete.', annotations: { readOnlyHint: true },
+      inputSchema: { type: 'object', properties: { which: { type: 'string', enum: ['primary', 'secondary'] }, topic: { type: 'string' } }, required: ['which', 'topic'] },
+      execute: function (a) { var w = whichSide(a && a.which); return { ok: true, which: w, clause: getClause(textOf(w), (a && a.topic) || '') }; } },
+    { name: 'compare_contracts', description: 'Compare the primary and secondary contracts on which risk clauses each contains and on their key terms. Returns a matrix and a term comparison.', annotations: { readOnlyHint: true },
+      inputSchema: { type: 'object', properties: {} },
+      execute: function () { return compareContracts(); } },
+    { name: 'get_both_contracts', description: 'Return the full text of both contracts at once.', annotations: { readOnlyHint: true },
+      inputSchema: { type: 'object', properties: {} },
+      execute: function () { return { ok: true, primary: primary || '', secondary: secondary || '' }; } }
+  ];
+
+  var REGISTRY = {};
+  TOOLS.forEach(function (t) { REGISTRY[t.name] = t; });
+  function invokeTool(name, args) {
+    var t = REGISTRY[name];
+    if (!t) return Promise.resolve({ ok: false, error: 'Unknown tool ' + name });
+    return Promise.resolve(t.execute(args || {}));
+  }
+  window.__contractclarity = { tools: REGISTRY, invokeTool: invokeTool };
+
+  function getMC() { return (document.modelContext) || (navigator.modelContext) || null; }
+
+  function registerAll() {
+    var mc = getMC();
+    var native = false;
+    if (mc && typeof mc.registerTool === 'function') {
+      TOOLS.forEach(function (t) {
+        try { if (mc.unregisterTool) mc.unregisterTool(t.name); } catch (e) {}
+        try {
+          mc.registerTool({ name: t.name, description: t.description, inputSchema: t.inputSchema, annotations: t.annotations, execute: t.execute });
+        } catch (e) { console.warn('registerTool failed for', t.name, e); }
+      });
+      native = true;
+    }
+    var badge = el('mcp-status');
+    if (native) {
+      badge.textContent = 'WebMCP connected · ' + TOOLS.length + ' tools';
+      badge.className = 'text-xs font-semibold px-3 py-1.5 rounded-full bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300';
+      el('mcp-debug').textContent = 'WebMCP tools registered: ' + TOOLS.map(function (t) { return t.name; }).join(', ') + '.';
+    } else {
+      badge.textContent = 'tester only · ' + TOOLS.length + ' tools';
+      badge.className = 'text-xs font-semibold px-3 py-1.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300';
+      el('mcp-debug').textContent = 'No WebMCP browser detected. Use ChatGPT desktop or Chrome 149+ with the flag, or drive the tools with the tester below.';
+    }
+  }
+
+  var PROMPTS = [
+    'Call analyze_contract for the primary contract, then explain the top risks in plain English for a non-lawyer.',
+    'Call list_risk_flags for the primary contract and tell me which one to negotiate first and why.',
+    'Call extract_terms for the primary contract and give me the key dates, amounts, and the notice period.',
+    'Call compare_contracts and tell me which agreement is more favorable to me, clause by clause.'
+  ];
+  var promptsEl = el('prompts');
+  PROMPTS.forEach(function (p) {
+    var row = document.createElement('div');
+    row.className = 'flex items-center gap-2 bg-white dark:bg-gray-800 p-2 rounded-lg border border-indigo-100 dark:border-indigo-900';
+    row.innerHTML = '<span class="text-xs font-mono text-gray-600 dark:text-gray-300 flex-1"></span>';
+    row.firstChild.textContent = p;
+    var b = document.createElement('button');
+    b.className = 'text-xs bg-indigo-100 dark:bg-indigo-900 px-3 py-1 rounded-full text-indigo-700 dark:text-indigo-300';
+    b.textContent = 'Copy';
+    b.addEventListener('click', function () { navigator.clipboard.writeText(p).then(function () { toast('Prompt copied'); }); });
+    row.appendChild(b);
+    promptsEl.appendChild(row);
+  });
+
+  var EXAMPLES = {
+    get_contract: '{ "which": "primary" }',
+    set_contract: '{ "which": "primary", "text": "This Agreement..." }',
+    analyze_contract: '{ "which": "primary" }',
+    list_risk_flags: '{ "which": "primary" }',
+    extract_terms: '{ "which": "primary" }',
+    get_clause: '{ "which": "primary", "topic": "termination" }',
+    compare_contracts: '{}',
+    get_both_contracts: '{}'
+  };
+  var sel = el('tool-select'), argsTA = el('tool-args'), resultEl = el('tool-result'), descEl = el('tool-desc');
+  TOOLS.forEach(function (t) { var o = document.createElement('option'); o.value = t.name; o.textContent = t.name; sel.appendChild(o); });
+  function syncTester() { var t = REGISTRY[sel.value]; descEl.textContent = t ? t.description : ''; argsTA.value = EXAMPLES[sel.value] || '{}'; resultEl.classList.add('hidden'); }
+  sel.addEventListener('change', syncTester);
+  el('tool-run').addEventListener('click', async function () {
+    var args = {};
+    try { args = argsTA.value.trim() ? JSON.parse(argsTA.value) : {}; } catch (e) { resultEl.textContent = 'Bad JSON: ' + e.message; resultEl.classList.remove('hidden'); return; }
+    var out = await invokeTool(sel.value, args);
+    resultEl.textContent = JSON.stringify(out, null, 2);
+    resultEl.classList.remove('hidden');
+  });
+  syncTester();
+
+  function boot() {
+    if (!getMC() && typeof window.initializeWebMCPPolyfill === 'function') {
+      try { window.initializeWebMCPPolyfill(); } catch (e) {}
+    }
+    registerAll();
+    loadFromHash();
+    renderAnalysis();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();
+</script>
+</body>
+</html>
