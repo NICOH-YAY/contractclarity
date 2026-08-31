@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ContractClarity — read any contract with your own agent</title>
+  <title>ContractClarity · read any contract with your own agent</title>
   <meta name="description" content="Load a contract and the page pulls out the terms and flags the risky clauses on its own, then exposes those findings to your AI agent through WebMCP. Nothing leaves your browser." />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js" integrity="sha384-nFoSjZIoH3CCp8W639jJyQkuPHinJ2NHe7on1xvlUA7SuGfJAfvMldrsoAVm6ECz" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
@@ -293,7 +293,7 @@
     </div>
     <div class="grid-3">
       <div>
-        <div class="eyebrow" style="margin-bottom:10px">Key terms</div>
+        <div class="eyebrow" style="margin-bottom:10px">Terms</div>
         <dl id="terms" style="margin:0"></dl>
       </div>
       <div>
@@ -711,7 +711,7 @@
     { name: 'list_risk_flags', description: 'Return just the risky clauses the page detected in a contract, each with a severity, a short reason, and the matching snippet.', annotations: { readOnlyHint: true },
       inputSchema: { type: 'object', properties: { which: { type: 'string', enum: ['primary', 'secondary'] } }, required: ['which'] },
       execute: function (a) { var w = whichSide(a && a.which); return { ok: true, which: w, flags: analyze(textOf(w)).riskFlags || [] }; } },
-    { name: 'extract_terms', description: 'Return the key terms the page pulled from a contract: parties, effective date, term length, notice period, payment terms, governing law, amounts, and dates.', annotations: { readOnlyHint: true },
+    { name: 'extract_terms', description: 'Return the terms the page pulled from a contract: parties, effective date, term length, notice period, payment terms, governing law, amounts, and dates.', annotations: { readOnlyHint: true },
       inputSchema: { type: 'object', properties: { which: { type: 'string', enum: ['primary', 'secondary'] } }, required: ['which'] },
       execute: function (a) { var w = whichSide(a && a.which); var r = analyze(textOf(w)); return { ok: true, which: w, terms: r.terms || null }; } },
     { name: 'get_clause', description: 'Return the passage of a contract that covers a topic: termination, payment, liability, confidentiality, renewal, indemnification, governing law, or non-compete.', annotations: { readOnlyHint: true },
@@ -720,10 +720,10 @@
     { name: 'assess_risk', description: 'Return an overall risk read for a contract: a 0 to 100 score, a level (Low, Moderate, Elevated, High), counts by severity, and the flagged clauses. The page computes this from its clause rulebook.', annotations: { readOnlyHint: true },
       inputSchema: { type: 'object', properties: { which: { type: 'string', enum: ['primary', 'secondary'] } }, required: ['which'] },
       execute: function (a) { var w = whichSide(a && a.which); var r = analyze(textOf(w)); if (r.empty) return { ok: false, error: 'No contract loaded.' }; return { ok: true, which: w, score: r.riskScore, level: r.riskLevel, counts: r.flagCounts, flags: r.riskFlags.map(function (f) { return { label: f.label, severity: f.severity }; }) }; } },
-    { name: 'compare_contracts', description: 'Compare the primary and secondary contracts on which risk clauses each contains and on their key terms. Returns a matrix and a term comparison.', annotations: { readOnlyHint: true },
+    { name: 'compare_contracts', description: 'Compare the primary and secondary contracts on which risk clauses each contains and on their terms. Returns a matrix and a term comparison.', annotations: { readOnlyHint: true },
       inputSchema: { type: 'object', properties: {} },
       execute: function () { return compareContracts(); } },
-    { name: 'list_sections', description: 'List the numbered sections the page found in a contract, with their headings. Use this to ask for one section instead of the whole document.', annotations: { readOnlyHint: true },
+    { name: 'list_sections', description: 'List the numbered sections the page found in a contract, with their headings. Use this to request a single section by itself.', annotations: { readOnlyHint: true },
       inputSchema: { type: 'object', properties: { which: { type: 'string', enum: ['primary', 'secondary'] } }, required: ['which'] },
       execute: function (a) { var w = whichSide(a && a.which); return { ok: true, which: w, sections: detectSections(textOf(w)).map(function (s) { return { id: s.id, title: s.title }; }) }; } },
     { name: 'get_clause_by_id', description: 'Return the text of one numbered section by its id, from its heading to the next section. Reference the id from list_sections.', annotations: { readOnlyHint: true },
@@ -784,7 +784,7 @@
   var PROMPTS = [
     'Call analyze_contract for the primary contract, then explain the top risks in plain English for a non-lawyer.',
     'Call list_risk_flags for the primary contract and tell me which one to negotiate first and why.',
-    'Call extract_terms for the primary contract and give me the key dates, amounts, and the notice period.',
+    'Call extract_terms for the primary contract and give me the dates, amounts, and the notice period.',
     'Call compare_contracts and tell me which agreement is more favorable to me, clause by clause.'
   ];
   var promptsEl = el('prompts');
