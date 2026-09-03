@@ -353,7 +353,7 @@
   // ---------------------------------------------------------------------------
 
   var RISK_RULES = [
-    { id: 'auto_renewal', label: 'Auto-renewal', severity: 'medium', re: /(auto(?:matic(?:ally)?)?[ -]?renew\w*|renew(?:s|ed)? for (?:successive|additional|another))/i, why: 'Renews on its own unless you cancel in time.' },
+    { id: 'auto_renewal', label: 'Auto-renewal', severity: 'medium', re: /\b(?:automatically\s+renew(?:s|ed|al)?|auto[-\s]?renew(?:s|al)?)\b/i, why: 'Renews on its own unless you cancel in time.' },
     { id: 'termination_convenience', label: 'Termination for convenience', severity: 'medium', re: /terminat\w+[^.]{0,45}(for convenience|without cause|at any time|sole discretion)/i, why: 'The other side can end the deal at will.' },
     { id: 'indemnification', label: 'Indemnification', severity: 'medium', re: /indemnif(?:y|ication|ies|ied)/i, why: 'You may have to cover the other party’s losses.' },
     { id: 'non_compete', label: 'Non-compete', severity: 'high', re: /(non-?compete|shall not (?:directly or indirectly )?compete|restrictive covenant)/i, why: 'Limits your future work or business.' },
@@ -430,16 +430,20 @@
     return text.slice(start, end).replace(/\s+/g, ' ').trim();
   }
 
-  // A short negation just before a match flips its meaning, e.g. "no automatic
-  // renewal". firstUnnegated skips those and returns a real match elsewhere.
-  function negatedBefore(text, idx) {
-    var before = text.slice(Math.max(0, idx - 24), idx).toLowerCase();
-    return /\b(no|not|never|without)\b/.test(before);
+  // A negation in the same clause flips an auto-renewal match, e.g. "no
+  // automatic renewal". Look back within the clause only, so a real renewal in
+  // another clause still flags. Scan every occurrence and take the first that
+  // is not negated.
+  var NEGATION = /\b(?:no|not|does\s+not|do\s+not|will\s+not|shall\s+not|without)\b/i;
+  function isNegatedBefore(text, matchIndex) {
+    var local = text.slice(Math.max(0, matchIndex - 80), matchIndex);
+    var sameClause = local.split(/[.;:]/).pop();
+    return NEGATION.test(sameClause);
   }
   function firstUnnegated(text, re) {
     var g = new RegExp(re.source, 'gi'), m;
     while ((m = g.exec(text)) !== null) {
-      if (!negatedBefore(text, m.index)) return m;
+      if (!isNegatedBefore(text, m.index)) return m;
       if (m.index === g.lastIndex) g.lastIndex++;
     }
     return null;
