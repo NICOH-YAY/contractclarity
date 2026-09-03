@@ -430,11 +430,26 @@
     return text.slice(start, end).replace(/\s+/g, ' ').trim();
   }
 
+  // A short negation just before a match flips its meaning, e.g. "no automatic
+  // renewal". firstUnnegated skips those and returns a real match elsewhere.
+  function negatedBefore(text, idx) {
+    var before = text.slice(Math.max(0, idx - 24), idx).toLowerCase();
+    return /\b(no|not|never|without)\b/.test(before);
+  }
+  function firstUnnegated(text, re) {
+    var g = new RegExp(re.source, 'gi'), m;
+    while ((m = g.exec(text)) !== null) {
+      if (!negatedBefore(text, m.index)) return m;
+      if (m.index === g.lastIndex) g.lastIndex++;
+    }
+    return null;
+  }
+
   function riskFlags(text) {
     var sections = detectSections(text);
     var flags = [];
     RISK_RULES.forEach(function (r) {
-      var m = text.match(r.re);
+      var m = r.id === 'auto_renewal' ? firstUnnegated(text, r.re) : text.match(r.re);
       if (m) {
         var conf = RULE_CONF[r.id] || 'medium';
         flags.push({
